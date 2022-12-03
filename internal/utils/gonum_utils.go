@@ -1,6 +1,10 @@
 package utils
 
-import "gonum.org/v1/gonum/mat"
+import (
+	"fmt"
+
+	"gonum.org/v1/gonum/mat"
+)
 
 func SubVec(a, b *mat.VecDense) *mat.VecDense {
 	if a.Len() != b.Len() {
@@ -48,4 +52,13 @@ func LEThan(a, b *mat.VecDense) bool {
 
 func LThan(a, b *mat.VecDense) bool {
 	return !LEThan(b, a)
+}
+
+func ToString(a *mat.VecDense) string {
+	ret := ""
+	for i := 0; i < a.Len(); i += 1 {
+		ret += fmt.Sprintf("%v", a.AtVec(i))
+	}
+
+	return ret
 }

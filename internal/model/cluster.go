@@ -32,13 +32,18 @@ type ClusterState struct {
 	Edge  EdgeState
 	Cloud CloudState
 
-	CandidatesList    []*Candidate
+	CandidatesList      []*Candidate
+	CloudToEdgeDecision Decision
+
 	ResourcesBuffer   *mat.VecDense
 	NodeResourcesUsed map[int]*mat.VecDense
+	PodsMap           map[int]*Pod
 }
 
 func NewClusterState() *ClusterState {
-	return &ClusterState{}
+	return &ClusterState{
+		PodsMap: make(map[int]*Pod),
+	}
 }
 
 func (c *ClusterState) Clone() *ClusterState {
@@ -70,7 +75,7 @@ func (c *ClusterState) AddNode(n *Node, where string) {
 	}
 
 	c.Edge.Config.Nodes = append(c.Edge.Config.Nodes, n)
-	c.Edge.Config.Resources.AddVec(c.Edge.Config.Resources, n.Resources)
+	utils.SAddVec(c.Edge.Config.Resources, n.Resources)
 
 	c.NodeResourcesUsed[n.Id] = mat.NewVecDense(config.SchedulerGeneralConfig.ResourceConfig, nil)
 }
@@ -100,6 +105,8 @@ func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 	utils.SAddVec(c.NodeResourcesUsed[node.Id], pod.Deployment.ResourcesRequired)
 	utils.SAddVec(c.Edge.UsedResources, pod.Deployment.ResourcesRequired)
 
+	c.PodsMap[pod.Id] = pod
+
 	return nil
 }
 
@@ -108,6 +115,8 @@ func (c *ClusterState) DeployCloud(pod *Pod) {
 		target := c.Cloud.Nodes[rand.Intn(len(c.Cloud.Nodes))]
 		pod.Node = target
 	}
+
+	c.PodsMap[pod.Id] = pod
 
 	c.Cloud.Pods = append(c.Cloud.Pods, pod)
 }
@@ -134,5 +143,13 @@ func (c *ClusterState) RemovePodEdge(pod *Pod) error {
 	utils.SSubVec(c.NodeResourcesUsed[node.Id], pod.Deployment.ResourcesRequired)
 	utils.SSubVec(c.Edge.UsedResources, pod.Deployment.ResourcesRequired)
 
+	delete(c.PodsMap, pod.Id)
+
 	return nil
+}
+
+func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec Decision) {
+	c.CandidatesList = cl
+	c.CloudToEdgeDecision = dec
+	c.RemoveFromBuffer(buffer)
 }
