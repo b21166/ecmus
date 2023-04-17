@@ -3,6 +3,7 @@ package alg
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/model"
@@ -96,24 +97,7 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 		migrations       []*model.Migration
 	}
 
-	maxResources := mat.NewVecDense(0, nil)
-	for _, node := range c.Edge.Config.Nodes {
-		for i := 0; i < node.Resources.Len(); i++ {
-			maxResources.SetVec(i, math.Max(maxResources.AtVec(i), node.Resources.AtVec(i)))
-		}
-	}
-
-	calcDeFragmentation := func(resources *mat.VecDense) float64 {
-		var ret float64
-
-		for i := 0; i < resources.Len(); i++ {
-			norm := resources.AtVec(i) / maxResources.AtVec(i)
-			norm *= norm
-			ret += norm
-		}
-
-		return ret
-	}
+	maxResources := c.Edge.Config.GetMaximumResources()
 
 	nodeResourcesRemained := c.GetNodesResourcesRemained()
 
@@ -121,9 +105,9 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 		var deFragmentation float64
 		deFragmentation = 0
 		for _, pod := range migratedPods {
-			deFragmentation -= calcDeFragmentation(nodeResourcesRemained[pod.Node.Id])
+			deFragmentation -= utils.CalcDeFragmentation(nodeResourcesRemained[pod.Node.Id], maxResources)
 			utils.SAddVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
-			deFragmentation += calcDeFragmentation(nodeResourcesRemained[pod.Node.Id])
+			deFragmentation += utils.CalcDeFragmentation(nodeResourcesRemained[pod.Node.Id], maxResources)
 		}
 
 		n := len(c.Edge.Config.Nodes)
@@ -143,10 +127,12 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 				resources := mat.NewVecDense(node.Resources.Len(), nil)
 				for k := i; k >= 0; k-- {
 					if utils.LEThan(resources, nodeResourcesRemained[node.Id]) {
-						currentDeFragmentation := calcDeFragmentation(
+						currentDeFragmentation := utils.CalcDeFragmentation(
 							utils.SubVec(nodeResourcesRemained[node.Id], resources),
-						) - calcDeFragmentation(
+							maxResources,
+						) - utils.CalcDeFragmentation(
 							nodeResourcesRemained[node.Id],
+							maxResources,
 						)
 
 						current := dp[i-1][j] + currentDeFragmentation
@@ -213,4 +199,60 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 	}
 
 	return bestMigrations.migrations
+}
+
+// TODO move it to config
+const (
+	FRAGMENTATION_COEFFICIENT float64 = 1
+	WEIGHT_COEFFICIENT        float64 = 2
+)
+
+func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) (float64, []*model.Pod) {
+	PodsOfNode := make(map[int][]*model.Pod)
+	for _, node := range c.Edge.Config.Nodes {
+		PodsOfNode[node.Id] = make([]*model.Pod, 0)
+	}
+
+	var maxWeight float64
+	for _, pod := range c.Edge.Pods {
+		maxWeight = math.Max(maxWeight, pod.Deployment.Weight)
+		PodsOfNode[pod.Node.Id] = append(PodsOfNode[pod.Node.Id], pod)
+	}
+
+	maximumResources := c.Edge.Config.GetMaximumResources()
+
+	costOfFreeingPod := func(pod *model.Pod) float64 {
+		var cost float64
+		fragmentation := utils.CalcDeFragmentation(pod.Deployment.ResourcesRequired, maximumResources)
+		cost += fragmentation * FRAGMENTATION_COEFFICIENT
+		cost -= pod.Deployment.Weight * WEIGHT_COEFFICIENT
+
+		return cost
+	}
+
+	needToFreeResources := utils.SubVec(c.Edge.Config.Resources, leastResource)
+	for i := 0; i < needToFreeResources.Len(); i++ {
+		if needToFreeResources.AtVec(i) < 0 {
+			needToFreeResources.SetVec(i, 0)
+		}
+	}
+
+	edgePods := make([]*model.Pod, len(c.Edge.Pods))
+	copy(edgePods, c.Edge.Pods)
+	sort.Sort(&podSorter{
+		pods: edgePods,
+		by:   costOfFreeingPod,
+	})
+
+	currentFreedResources := mat.NewVecDense(needToFreeResources.Len(), nil)
+	freedPods := make([]*model.Pod, 0)
+	var cost float64
+
+	for i := 0; i < len(edgePods) && utils.LThan(currentFreedResources, needToFreeResources); i++ {
+		utils.SAddVec(currentFreedResources, edgePods[i].Deployment.ResourcesRequired)
+		cost += costOfFreeingPod(edgePods[i])
+		freedPods = append(freedPods, edgePods[i])
+	}
+
+	return cost, freedPods
 }

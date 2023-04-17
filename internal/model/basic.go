@@ -8,6 +8,7 @@ type Deployment struct {
 	ResourcesRequired *mat.VecDense
 
 	// TODO score rule
+	Weight float64
 }
 
 type Node struct {

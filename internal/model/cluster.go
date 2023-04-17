@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 
 	"github.com/amsen20/ecmus/internal/config"
@@ -110,6 +111,17 @@ func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 	return nil
 }
 
+func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
+	ret := mat.NewVecDense(0, nil)
+	for _, node := range ec.Nodes {
+		for i := 0; i < node.Resources.Len(); i++ {
+			ret.SetVec(i, math.Max(ret.AtVec(i), node.Resources.AtVec(i)))
+		}
+	}
+
+	return ret
+}
+
 func (c *ClusterState) DeployCloud(pod *Pod) {
 	if len(c.Cloud.Nodes) > 0 {
 		target := c.Cloud.Nodes[rand.Intn(len(c.Cloud.Nodes))]
@@ -156,6 +168,7 @@ func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec Decisio
 
 func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 	NodesResourcesRemained := make(map[int]*mat.VecDense)
+	// TODO change it to all nodes
 	for _, node := range c.Edge.Config.Nodes {
 		resources := mat.NewVecDense(node.Resources.Len(), nil)
 		resources.SubVec(node.Resources, c.NodeResourcesUsed[node.Id])
