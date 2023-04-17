@@ -153,3 +153,14 @@ func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec Decisio
 	c.CloudToEdgeDecision = dec
 	c.RemoveFromBuffer(buffer)
 }
+
+func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
+	NodesResourcesRemained := make(map[int]*mat.VecDense)
+	for _, node := range c.Edge.Config.Nodes {
+		resources := mat.NewVecDense(node.Resources.Len(), nil)
+		resources.SubVec(node.Resources, c.NodeResourcesUsed[node.Id])
+		NodesResourcesRemained[node.Id] = resources
+	}
+
+	return NodesResourcesRemained
+}
