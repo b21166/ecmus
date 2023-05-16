@@ -10,6 +10,7 @@ import (
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
+	"github.com/emirpasic/gods/trees/binaryheap"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -247,9 +248,9 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) (float64, 
 
 	edgePods := make([]*model.Pod, len(c.Edge.Pods))
 	copy(edgePods, c.Edge.Pods)
-	sort.Sort(&podSorter{
-		pods: edgePods,
-		by:   costOfFreeingPod,
+	sort.Sort(&Sorter[model.Pod]{
+		objects: edgePods,
+		by:      costOfFreeingPod,
 	})
 
 	currentFreedResources := mat.NewVecDense(needToFreeResources.Len(), nil)
@@ -263,4 +264,78 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) (float64, 
 	}
 
 	return cost, freedPods
+}
+
+func MapPodsToEdge(c *model.ClusterState, pods []*model.Pod) map[int]*model.Node {
+	maximumResources := c.Edge.Config.GetMaximumResources()
+	nodeToResRem := c.GetNodesResourcesRemained()
+
+	podComparator := func(a, b interface{}) int {
+		podA := a.(*model.Pod)
+		podB := b.(*model.Pod)
+
+		normA := utils.CalcDeFragmentation(podA.Deployment.ResourcesRequired, maximumResources)
+		normB := utils.CalcDeFragmentation(podB.Deployment.ResourcesRequired, maximumResources)
+
+		if normA < normB {
+			// move A further
+			return 1
+		}
+		if normA == normB {
+			return 0
+		}
+		// move B further
+		return -1
+	}
+
+	nodeComparator := func(a, b interface{}) int {
+		nodeA := a.(*model.Node)
+		nodeB := b.(*model.Node)
+
+		normA := utils.CalcDeFragmentation(nodeToResRem[nodeA.Id], maximumResources)
+		normB := utils.CalcDeFragmentation(nodeToResRem[nodeB.Id], maximumResources)
+
+		if normA < normB {
+			// move B further
+			return -1
+		}
+		if normA == normB {
+			return 0
+		}
+		// move A further
+		return 1
+	}
+
+	ordererPods := binaryheap.NewWith(podComparator)
+	ordererNodes := binaryheap.NewWith(nodeComparator)
+
+	for _, pod := range pods {
+		ordererPods.Push(pod)
+	}
+
+	nodes := make([]*model.Node, len(c.Edge.Config.Nodes))
+	copy(nodes, c.Edge.Config.Nodes)
+
+	podsMapping := make(map[int]*model.Node)
+	for !ordererPods.Empty() {
+		firstPod, _ := ordererPods.Pop()
+		pod := firstPod.(*model.Pod)
+
+		nodes := make([]*model.Node, 0)
+		for !ordererNodes.Empty() {
+			firstNode, _ := ordererNodes.Pop()
+			node := firstNode.(*model.Node)
+			nodes = append(nodes, node)
+
+			if utils.LEThan(pod.Deployment.ResourcesRequired, nodeToResRem[node.Id]) {
+				podsMapping[pod.Id] = node
+			}
+		}
+
+		for _, node := range nodes {
+			ordererNodes.Push(node)
+		}
+	}
+
+	return podsMapping
 }

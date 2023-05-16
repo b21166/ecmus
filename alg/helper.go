@@ -1,20 +1,18 @@
 package alg
 
-import "github.com/amsen20/ecmus/internal/model"
-
-type podSorter struct {
-	pods []*model.Pod
-	by   func(*model.Pod) float64
+type Sorter[Obj any] struct {
+	objects []*Obj
+	by      func(*Obj) float64
 }
 
-func (ps *podSorter) Len() int {
-	return len(ps.pods)
+func (s *Sorter[Obj]) Len() int {
+	return len(s.objects)
 }
 
-func (ps *podSorter) Swap(i, j int) {
-	ps.pods[i], ps.pods[j] = ps.pods[j], ps.pods[i]
+func (s *Sorter[Obj]) Swap(i, j int) {
+	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
 }
 
-func (ps *podSorter) Less(i, j int) bool {
-	return ps.by(ps.pods[i]) < ps.by(ps.pods[j])
+func (s *Sorter[obj]) Less(i, j int) bool {
+	return s.by(s.objects[i]) < s.by(s.objects[j])
 }
