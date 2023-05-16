@@ -78,7 +78,7 @@ func (c *ClusterState) AddNode(n *Node, where string) {
 	c.Edge.Config.Nodes = append(c.Edge.Config.Nodes, n)
 	utils.SAddVec(c.Edge.Config.Resources, n.Resources)
 
-	c.NodeResourcesUsed[n.Id] = mat.NewVecDense(config.SchedulerGeneralConfig.ResourceConfig, nil)
+	c.NodeResourcesUsed[n.Id] = mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil)
 }
 
 func (c *ClusterState) AddToBuffer(vec *mat.VecDense) {

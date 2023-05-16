@@ -1,0 +1,5 @@
+name: ecmus
+namespace: ecmus
+resource_count: 2
+maximum_migrations: 3
+connector: kubernetes

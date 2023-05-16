@@ -11,7 +11,7 @@ type Connector interface {
 
 	Deploy(pod *model.Pod) error
 	DeletePod(pod *model.Pod) (bool, error)
-	WatchSchedulingEvents() <-chan *Event
+	WatchSchedulingEvents() (<-chan *Event, error)
 }
 
 type EventType int64
