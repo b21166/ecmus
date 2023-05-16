@@ -166,6 +166,19 @@ func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec Decisio
 	c.RemoveFromBuffer(buffer)
 }
 
+func (c *ClusterState) GetNodeIdToNode() map[int]*Node {
+	nodeIdToNode := make(map[int]*Node)
+
+	allNodes := c.Edge.Config.Nodes
+	allNodes = append(allNodes, c.Cloud.Nodes...)
+
+	for _, node := range allNodes {
+		nodeIdToNode[node.Id] = node
+	}
+
+	return nodeIdToNode
+}
+
 func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 	NodesResourcesRemained := make(map[int]*mat.VecDense)
 	// TODO change it to all nodes
