@@ -34,7 +34,7 @@ type ClusterState struct {
 	Cloud CloudState
 
 	CandidatesList      []*Candidate
-	CloudToEdgeDecision Decision
+	CloudToEdgeDecision DecisionForNewPods
 
 	ResourcesBuffer   *mat.VecDense
 	NodeResourcesUsed map[int]*mat.VecDense
@@ -160,7 +160,7 @@ func (c *ClusterState) RemovePodEdge(pod *Pod) error {
 	return nil
 }
 
-func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec Decision) {
+func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec DecisionForNewPods) {
 	c.CandidatesList = cl
 	c.CloudToEdgeDecision = dec
 	c.RemoveFromBuffer(buffer)

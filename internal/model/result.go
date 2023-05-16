@@ -10,17 +10,17 @@ type Migration struct {
 }
 
 type FreeEdgeSolution struct {
-	Score      int
+	Score      float64
 	FreedPods  []*Pod
 	Migrations []*Migration
 }
 
-type Decision struct {
-	Score          int
-	OffloadingPods *Pod
-	ToEdgePods     *Pod
-	ToCloudPods    *Pod
-	Migrations     []*Migration
+type DecisionForNewPods struct {
+	Score                     float64
+	EdgeToCloudOffloadingPods []*Pod
+	ToEdgePods                []*Pod
+	ToCloudPods               []*Pod
+	Migrations                []*Migration
 }
 
 type Candidate struct {

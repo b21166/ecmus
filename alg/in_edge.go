@@ -1,3 +1,5 @@
+// TODO change cluster states to edge state
+
 package alg
 
 import (
@@ -15,13 +17,20 @@ func filterCandidates(neededResources *mat.VecDense, candidates []*model.Candida
 	return nil, nil
 }
 
-func CalcState(c *model.ClusterState, neededResources *mat.VecDense) (*model.FreeEdgeSolution, error) {
-	return nil, nil
+func CalcState(c *model.ClusterState, neededResources *mat.VecDense) (model.FreeEdgeSolution, error) {
+	cost, freedPods := EvalFreePods(c, neededResources)
+	migrations := CalcMigrations(c, freedPods)
+
+	return model.FreeEdgeSolution{
+		Score:      -cost,
+		FreedPods:  freedPods,
+		Migrations: migrations,
+	}, nil
 }
 
-func GetMaximumScore(c *model.ClusterState, oNeededResources *mat.VecDense) ([]*model.Migration, []*model.Pod, int, error) {
+func GetMaximumScore(c *model.ClusterState, oNeededResources *mat.VecDense) (model.FreeEdgeSolution, error) {
 	if utils.LThan(c.Edge.Config.Resources, oNeededResources) {
-		return nil, nil, -1, fmt.Errorf("resource request limit exceeded for %s", utils.ToString(oNeededResources))
+		return model.FreeEdgeSolution{}, fmt.Errorf("resource request limit exceeded for %s", utils.ToString(oNeededResources))
 	}
 
 	neededResources := mat.NewVecDense(oNeededResources.Len(), nil)
@@ -29,20 +38,20 @@ func GetMaximumScore(c *model.ClusterState, oNeededResources *mat.VecDense) ([]*
 
 	candidates, err := filterCandidates(neededResources, c.CandidatesList)
 	if err != nil {
-		return nil, nil, -1, err
+		return model.FreeEdgeSolution{}, err
 	}
 
 	if len(candidates) == 0 {
 		feSol, err := CalcState(c, neededResources)
 		if err != nil {
-			return nil, nil, -1, err
+			return model.FreeEdgeSolution{}, err
 		}
 
-		return feSol.Migrations, feSol.FreedPods, feSol.Score, nil
+		return feSol, nil
 	}
 
 	var chosenCandidate *model.Candidate
-	chosenScore := int(-1e9)
+	chosenScore := math.Inf(-1)
 
 	for _, candidate := range c.CandidatesList {
 		if candidate.Solution.Score > chosenScore {
@@ -51,7 +60,7 @@ func GetMaximumScore(c *model.ClusterState, oNeededResources *mat.VecDense) ([]*
 		}
 	}
 
-	return chosenCandidate.Solution.Migrations, chosenCandidate.Solution.FreedPods, chosenCandidate.Solution.Score, nil
+	return chosenCandidate.Solution, nil
 }
 
 func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, choices *[][]*model.Pod) {
@@ -88,7 +97,6 @@ func GetPossiblePodChoices(c *model.ClusterState, freedPods []*model.Pod) (podCh
 	return
 }
 
-// Dynamic Programming
 func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migration {
 	possiblePodChoices := GetPossiblePodChoices(c, freedPods)
 
