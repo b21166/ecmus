@@ -25,7 +25,7 @@ type KubeConnector struct {
 	deploymentIdToName map[int]string
 }
 
-func NewKubeConnector(configPath string) (*KubeConnector, error) {
+func NewKubeConnector(configPath string, clusterState *model.ClusterState) (*KubeConnector, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", configPath)
 	if err != nil {
 		log.Err(err).Send()
@@ -42,7 +42,7 @@ func NewKubeConnector(configPath string) (*KubeConnector, error) {
 
 	kc := &KubeConnector{
 		clientset:    clientset,
-		clusterState: model.NewClusterState(),
+		clusterState: clusterState,
 		nodeIdToName: make(map[int]string),
 		podIdToName:  make(map[int]string),
 	}

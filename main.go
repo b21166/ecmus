@@ -7,6 +7,7 @@ import (
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/connector"
+	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/scheduler"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
@@ -28,11 +29,13 @@ func main() {
 	}
 
 	var c connector.Connector
+	clusterState := model.NewClusterState()
+
 	switch config.SchedulerGeneralConfig.ConnectorKind {
 	case "fake":
 		// TODO
 	case "kubernetes":
-		c, err = connector.NewKubeConnector("/path/to/kuberconfig")
+		c, err = connector.NewKubeConnector("/path/to/kuberconfig", clusterState)
 		if err != nil {
 			log.Err(err).Msg("could not init the connector")
 			os.Exit(1)
@@ -41,5 +44,11 @@ func main() {
 		log.Error().Msg("connector kind is not recognized")
 	}
 
-	scheduler.Run(c)
+	sched := &scheduler.Scheduler{
+		ClusterState: clusterState,
+		Connector:    c,
+	}
+
+	sched.Start()
+	sched.Run()
 }
