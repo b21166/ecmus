@@ -11,8 +11,9 @@ import (
 )
 
 type EdgeConfig struct {
-	Nodes       []*Node
-	Deployments []*Deployment
+	Nodes                    []*Node
+	Deployments              []*Deployment
+	DeploymentIdToDeployment map[int]*Deployment
 
 	Resources *mat.VecDense
 }
@@ -30,8 +31,8 @@ type CloudState struct {
 }
 
 type ClusterState struct {
-	Edge  EdgeState
-	Cloud CloudState
+	Edge  *EdgeState
+	Cloud *CloudState
 
 	CandidatesList      []*Candidate
 	CloudToEdgeDecision DecisionForNewPods
@@ -41,10 +42,47 @@ type ClusterState struct {
 	PodsMap           map[int]*Pod
 }
 
+func newEdgeConfig() *EdgeConfig {
+	return &EdgeConfig{
+		DeploymentIdToDeployment: make(map[int]*Deployment),
+	}
+}
+
+func newEdgeState() *EdgeState {
+	return &EdgeState{
+		Config: newEdgeConfig(),
+	}
+}
+
 func NewClusterState() *ClusterState {
 	return &ClusterState{
-		PodsMap: make(map[int]*Pod),
+		Edge:              newEdgeState(),
+		ResourcesBuffer:   mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil),
+		PodsMap:           make(map[int]*Pod),
+		NodeResourcesUsed: make(map[int]*mat.VecDense),
 	}
+}
+
+func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
+	if _, ok := ec.DeploymentIdToDeployment[deployment.Id]; ok {
+		return false
+	}
+
+	ec.DeploymentIdToDeployment[deployment.Id] = deployment
+	ec.Deployments = append(ec.Deployments, deployment)
+
+	return true
+}
+
+func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
+	ret := mat.NewVecDense(0, nil)
+	for _, node := range ec.Nodes {
+		for i := 0; i < node.Resources.Len(); i++ {
+			ret.SetVec(i, math.Max(ret.AtVec(i), node.Resources.AtVec(i)))
+		}
+	}
+
+	return ret
 }
 
 func (c *ClusterState) Clone() *ClusterState {
@@ -109,17 +147,6 @@ func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 	c.PodsMap[pod.Id] = pod
 
 	return nil
-}
-
-func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
-	ret := mat.NewVecDense(0, nil)
-	for _, node := range ec.Nodes {
-		for i := 0; i < node.Resources.Len(); i++ {
-			ret.SetVec(i, math.Max(ret.AtVec(i), node.Resources.AtVec(i)))
-		}
-	}
-
-	return ret
 }
 
 func (c *ClusterState) DeployCloud(pod *Pod) {
