@@ -1,3 +1,5 @@
+// TODO decouple connector from cluster state
+
 package connector
 
 import (
@@ -7,7 +9,6 @@ import (
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
-	"github.com/rs/zerolog/log"
 	"gonum.org/v1/gonum/mat"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,18 +46,6 @@ func NewKubeConnector(configPath string, clusterState *model.ClusterState) (*Kub
 		clusterState: clusterState,
 		nodeIdToName: make(map[int]string),
 		podIdToName:  make(map[int]string),
-	}
-
-	if err := kc.FindNodes(); err != nil {
-		log.Err(err).Send()
-
-		return nil, fmt.Errorf("could not find nodes")
-	}
-
-	if err := kc.FindDeployments(); err != nil {
-		log.Err(err).Send()
-
-		return nil, fmt.Errorf("could not find deployments")
 	}
 
 	return kc, nil
@@ -143,10 +132,10 @@ func (kc *KubeConnector) FindDeployments() error {
 				resourceList.Cpu().AsApproximateFloat64(),
 				resourceList.Memory().AsApproximateFloat64(),
 			}),
-			ImageSize: 0, // FIXME add real image size
+			Weight: 1, // TODO parse it
 		}
 
-		kc.clusterState.Edge.Config.Deployments = append(kc.clusterState.Edge.Config.Deployments, modelDeployment)
+		kc.clusterState.Edge.Config.AddDeployment(modelDeployment)
 		kc.deploymentIdToName[modelDeployment.Id] = deployment.GetObjectMeta().GetName()
 	}
 
@@ -167,7 +156,7 @@ func (kc *KubeConnector) DeletePod(pod *model.Pod) (bool, error) {
 		context.Background(), podName, *metav1.NewDeleteOptions(0),
 	)
 	if err != nil {
-		return false, err
+		return true, err
 	}
 
 	return true, nil
@@ -238,12 +227,29 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 				continue
 			}
 
+			deploymentName, ok := v1Pod.ObjectMeta.Labels["app"]
+			if !ok {
+				log.Warn().Msgf("event's pod has no deployment.")
+
+				continue
+			}
+
+			deploymentId := utils.Hash(deploymentName)
+			deployment, ok := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+			if !ok {
+				log.Info().Msgf("some pod event has happened for deployment %s not related to scheduler.", deploymentName)
+
+				continue
+			}
+
 			id := utils.Hash(v1Pod.Name)
 			pod, ok := kc.clusterState.PodsMap[id]
 			if !ok {
-				log.Info().Msgf("got an event about not registered pod")
-
-				continue
+				log.Info().Msgf("got an event about not registered pod, creating it.")
+				pod = &model.Pod{
+					Id:         id,
+					Deployment: deployment,
+				}
 			}
 
 			nodeName := v1Pod.Spec.NodeName
@@ -254,8 +260,21 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 				nodeId := utils.Hash(nodeName)
 				node, ok = kc.clusterState.GetNodeIdToNode()[nodeId]
 				if !ok {
-					node = nil
+					log.Warn().Msgf("pod's node (%s) is not registered, ignoring the event.", nodeName)
+
+					return
 				}
+			}
+
+			var newPodStatus model.PodStatus
+
+			switch v1Pod.Status.Phase {
+			case v1.PodPending, v1.PodUnknown:
+				newPodStatus = model.SCHEDULED
+			case v1.PodRunning:
+				newPodStatus = model.RUNNING
+			case v1.PodSucceeded, v1.PodFailed:
+				newPodStatus = model.FINISHED
 			}
 
 			var eventType EventType
@@ -272,6 +291,7 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 				EventType: eventType,
 				Pod:       pod,
 				Node:      node,
+				Status:    newPodStatus,
 			}
 		}
 	}()

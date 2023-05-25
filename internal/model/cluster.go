@@ -160,7 +160,39 @@ func (c *ClusterState) DeployCloud(pod *Pod) {
 	c.Cloud.Pods = append(c.Cloud.Pods, pod)
 }
 
-func (c *ClusterState) RemovePodEdge(pod *Pod) error {
+func (c *ClusterState) RemovePod(pod *Pod) bool {
+	ret := c.RemovePodEdge(pod)
+	if !ret {
+		ret = c.RemovePodCloud(pod)
+	}
+
+	pod.Node = nil
+	delete(c.PodsMap, pod.Id)
+
+	return ret
+}
+
+func (c *ClusterState) RemovePodCloud(pod *Pod) bool {
+	cpod_ind := -1
+	for ind, cpod := range c.Cloud.Pods {
+		if cpod.Id == pod.Id {
+			cpod_ind = ind
+			break
+		}
+	}
+
+	if cpod_ind == -1 {
+		return false
+	}
+
+	pod.Node = nil
+	c.Cloud.Pods[cpod_ind] = c.Edge.Pods[len(c.Edge.Pods)-1]
+	c.Cloud.Pods = c.Edge.Pods[:len(c.Edge.Pods)-1]
+
+	return true
+}
+
+func (c *ClusterState) RemovePodEdge(pod *Pod) bool {
 	pod_ind := -1
 	for ind, epod := range c.Edge.Pods {
 		if epod.Id == pod.Id {
@@ -170,10 +202,9 @@ func (c *ClusterState) RemovePodEdge(pod *Pod) error {
 	}
 
 	if pod_ind == -1 {
-		return fmt.Errorf("pod %d not found", pod.Id)
+		return false
 	}
 
-	pod.Node = nil
 	c.Edge.Pods[pod_ind] = c.Edge.Pods[len(c.Edge.Pods)-1]
 	c.Edge.Pods = c.Edge.Pods[:len(c.Edge.Pods)-1]
 	c.RemoveFromBuffer(pod.Deployment.ResourcesRequired)
@@ -182,9 +213,7 @@ func (c *ClusterState) RemovePodEdge(pod *Pod) error {
 	utils.SSubVec(c.NodeResourcesUsed[node.Id], pod.Deployment.ResourcesRequired)
 	utils.SSubVec(c.Edge.UsedResources, pod.Deployment.ResourcesRequired)
 
-	delete(c.PodsMap, pod.Id)
-
-	return nil
+	return true
 }
 
 func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec DecisionForNewPods) {

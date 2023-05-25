@@ -2,6 +2,7 @@ package connector
 
 import (
 	"github.com/amsen20/ecmus/internal/model"
+	"github.com/amsen20/ecmus/logging"
 )
 
 type Connector interface {
@@ -26,4 +27,7 @@ type Event struct {
 	EventType EventType
 	Pod       *model.Pod
 	Node      *model.Node
+	Status    model.PodStatus
 }
+
+var log = logging.Get()

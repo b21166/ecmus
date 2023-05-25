@@ -15,8 +15,17 @@ type Node struct {
 	Resources *mat.VecDense
 }
 
+type PodStatus int
+
+const (
+	SCHEDULED PodStatus = iota
+	RUNNING
+	FINISHED
+)
+
 type Pod struct {
 	Id         int
 	Deployment *Deployment
 	Node       *Node
+	Status     PodStatus
 }
