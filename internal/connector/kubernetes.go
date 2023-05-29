@@ -42,16 +42,19 @@ func NewKubeConnector(configPath string, clusterState *model.ClusterState) (*Kub
 	}
 
 	kc := &KubeConnector{
-		clientset:    clientset,
-		clusterState: clusterState,
-		nodeIdToName: make(map[int]string),
-		podIdToName:  make(map[int]string),
+		clientset:          clientset,
+		clusterState:       clusterState,
+		nodeIdToName:       make(map[int]string),
+		podIdToName:        make(map[int]string),
+		deploymentIdToName: make(map[int]string),
 	}
 
 	return kc, nil
 }
 
 func (kc *KubeConnector) FindNodes() error {
+	log.Info().Msg("finding nodes...")
+
 	ctx := context.Background()
 	nodeList, err := kc.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -65,7 +68,7 @@ func (kc *KubeConnector) FindNodes() error {
 			Id: utils.Hash(node.GetObjectMeta().GetName()),
 			Resources: mat.NewVecDense(2, []float64{
 				node.Status.Allocatable.Cpu().AsApproximateFloat64(),
-				node.Status.Allocatable.Memory().AsApproximateFloat64(),
+				node.Status.Allocatable.Memory().AsApproximateFloat64() / config.MB,
 			}),
 		}
 
@@ -74,6 +77,7 @@ func (kc *KubeConnector) FindNodes() error {
 			continue
 		}
 
+		log.Info().Msgf("found node %s", node.GetObjectMeta().GetName())
 		kc.clusterState.AddNode(modelNode, clusterType)
 	}
 
@@ -100,8 +104,15 @@ func (kc *KubeConnector) FindNodes() error {
 			for _, container := range pod.Spec.Containers {
 				vec := mat.NewVecDense(2, []float64{
 					container.Resources.Limits.Cpu().AsApproximateFloat64(),
-					container.Resources.Limits.Memory().AsApproximateFloat64(),
+					container.Resources.Limits.Memory().AsApproximateFloat64() / config.MB,
 				})
+
+				log.Info().Msgf(
+					"found a container on node %d, with resources: (%f, %f)\nremoving it from nodes resources",
+					node.Id,
+					vec.AtVec(0),
+					vec.AtVec(1),
+				)
 
 				utils.SSubVec(node.Resources, vec)
 				utils.SSubVec(kc.clusterState.Edge.Config.Resources, vec)
@@ -109,10 +120,14 @@ func (kc *KubeConnector) FindNodes() error {
 		}
 	}
 
+	log.Info().Msg("nodes found")
+
 	return nil
 }
 
 func (kc *KubeConnector) FindDeployments() error {
+	log.Info().Msg("finding deployments...")
+
 	ctx := context.Background()
 	deploymentList, err := kc.clientset.AppsV1().Deployments(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -130,14 +145,17 @@ func (kc *KubeConnector) FindDeployments() error {
 			Id: utils.Hash(deployment.GetObjectMeta().GetName()),
 			ResourcesRequired: mat.NewVecDense(2, []float64{
 				resourceList.Cpu().AsApproximateFloat64(),
-				resourceList.Memory().AsApproximateFloat64(),
+				resourceList.Memory().AsApproximateFloat64() / config.MB,
 			}),
 			Weight: 1, // TODO parse it
 		}
 
+		log.Info().Msgf("found deployment %s", deployment.GetObjectMeta().GetName())
 		kc.clusterState.Edge.Config.AddDeployment(modelDeployment)
 		kc.deploymentIdToName[modelDeployment.Id] = deployment.GetObjectMeta().GetName()
 	}
+
+	log.Info().Msg("deployments found")
 
 	return nil
 }

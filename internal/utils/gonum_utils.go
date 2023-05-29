@@ -55,10 +55,12 @@ func LThan(a, b *mat.VecDense) bool {
 }
 
 func ToString(a *mat.VecDense) string {
-	ret := ""
-	for i := 0; i < a.Len(); i += 1 {
-		ret += fmt.Sprintf("%v", a.AtVec(i))
-	}
+	// ret := ""
+	// for i := 0; i < a.Len(); i += 1 {
+	// 	ret += fmt.Sprintf("%v", a.AtVec(i))
+	// }
 
-	return ret
+	// return ret
+
+	return fmt.Sprintf("(Cpu: %f, Mem: %f)", a.AtVec(0), a.AtVec(1))
 }

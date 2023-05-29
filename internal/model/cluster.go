@@ -7,8 +7,11 @@ import (
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/utils"
+	"github.com/amsen20/ecmus/logging"
 	"gonum.org/v1/gonum/mat"
 )
+
+var log = logging.Get()
 
 type EdgeConfig struct {
 	Nodes                    []*Node
@@ -45,6 +48,8 @@ type ClusterState struct {
 func newEdgeConfig() *EdgeConfig {
 	return &EdgeConfig{
 		DeploymentIdToDeployment: make(map[int]*Deployment),
+
+		Resources: mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil),
 	}
 }
 
@@ -57,6 +62,7 @@ func newEdgeState() *EdgeState {
 func NewClusterState() *ClusterState {
 	return &ClusterState{
 		Edge:              newEdgeState(),
+		Cloud:             &CloudState{},
 		ResourcesBuffer:   mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil),
 		PodsMap:           make(map[int]*Pod),
 		NodeResourcesUsed: make(map[int]*mat.VecDense),
@@ -64,6 +70,8 @@ func NewClusterState() *ClusterState {
 }
 
 func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
+	log.Info().Msgf("adding deployment %v", deployment)
+
 	if _, ok := ec.DeploymentIdToDeployment[deployment.Id]; ok {
 		return false
 	}
@@ -108,15 +116,20 @@ func (c *ClusterState) Clone() *ClusterState {
 }
 
 func (c *ClusterState) AddNode(n *Node, where string) {
+	log.Info().Msgf("adding node %v", n)
+
 	if where == "cloud" {
 		c.Cloud.Nodes = append(c.Cloud.Nodes, n)
+
+		log.Info().Msg("added to cloud")
 		return
 	}
-
 	c.Edge.Config.Nodes = append(c.Edge.Config.Nodes, n)
 	utils.SAddVec(c.Edge.Config.Resources, n.Resources)
 
 	c.NodeResourcesUsed[n.Id] = mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil)
+
+	log.Info().Msg("added to edge")
 }
 
 func (c *ClusterState) AddToBuffer(vec *mat.VecDense) {
@@ -245,4 +258,7 @@ func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 	}
 
 	return NodesResourcesRemained
+}
+
+func (c *ClusterState) Display() {
 }

@@ -1,5 +1,5 @@
-name: ecmus
-namespace: ecmus
+name: momtaz
+namespace: momtaz
 resource_count: 2
 maximum_migrations: 3
 connector: kubernetes

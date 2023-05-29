@@ -1,6 +1,10 @@
 package model
 
-import "gonum.org/v1/gonum/mat"
+import (
+	"github.com/amsen20/ecmus/internal/utils"
+	"gonum.org/v1/gonum/mat"
+	"gopkg.in/yaml.v3"
+)
 
 type Deployment struct {
 	Id                int
@@ -11,8 +15,8 @@ type Deployment struct {
 }
 
 type Node struct {
-	Id        int
-	Resources *mat.VecDense
+	Id        int           `yaml:"id"`
+	Resources *mat.VecDense `yaml:"resources"`
 }
 
 type PodStatus int
@@ -24,8 +28,45 @@ const (
 )
 
 type Pod struct {
-	Id         int
-	Deployment *Deployment
-	Node       *Node
-	Status     PodStatus
+	Id         int         `yaml:"id"`
+	Deployment *Deployment `yaml:"deployment"`
+	Node       *Node       `yaml:"node"`
+	Status     PodStatus   `yaml:"status"`
+}
+
+func (deployment *Deployment) MarshalYAML() (interface{}, error) {
+	return &struct {
+		Id                int     `yaml:"id"`
+		ResourcesRequired string  `yaml:"resources"`
+		Weight            float64 `yaml:"weight"`
+	}{
+		Id:                deployment.Id,
+		ResourcesRequired: utils.ToString(deployment.ResourcesRequired),
+		Weight:            deployment.Weight,
+	}, nil
+}
+
+func (node *Node) MarshalYAML() (interface{}, error) {
+	return &struct {
+		Id        int    `yaml:"id"`
+		Resources string `yaml:"resources"`
+	}{
+		Id:        node.Id,
+		Resources: utils.ToString(node.Resources),
+	}, nil
+}
+
+func (deployment *Deployment) String() string {
+	bytes, _ := yaml.Marshal(deployment)
+	return string(bytes[:])
+}
+
+func (node *Node) String() string {
+	bytes, _ := yaml.Marshal(node)
+	return string(bytes[:])
+}
+
+func (pod *Pod) String() string {
+	bytes, _ := yaml.Marshal(pod)
+	return string(bytes[:])
 }

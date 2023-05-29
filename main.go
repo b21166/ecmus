@@ -1,29 +1,35 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"os"
+	"time"
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/connector"
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/scheduler"
-	"github.com/rs/zerolog/log"
+	"github.com/amsen20/ecmus/logging"
 	"gopkg.in/yaml.v2"
 )
+
+var log = logging.Get()
 
 func main() {
 	config_file_path := flag.String("config_file", "", "Path to config file")
 	flag.Parse()
 
+	fmt.Println(*config_file_path)
 	yamlFile, err := ioutil.ReadFile(*config_file_path)
 	if err != nil {
 		log.Err(err).Msgf("could not load config")
 		os.Exit(1)
 	}
 
-	if err := yaml.UnmarshalStrict(yamlFile, config.SchedulerGeneralConfig); err != nil {
+	if err := yaml.UnmarshalStrict(yamlFile, &config.SchedulerGeneralConfig); err != nil {
 		log.Err(err).Msgf("could not load config")
 		os.Exit(1)
 	}
@@ -35,20 +41,52 @@ func main() {
 	case "fake":
 		// TODO
 	case "kubernetes":
-		c, err = connector.NewKubeConnector("/path/to/kuberconfig", clusterState)
+		c, err = connector.NewKubeConnector("/home/amirhossein/.kube/config", clusterState)
 		if err != nil {
 			log.Err(err).Msg("could not init the connector")
 			os.Exit(1)
 		}
 	default:
 		log.Error().Msg("connector kind is not recognized")
+		os.Exit(1)
 	}
 
-	sched := &scheduler.Scheduler{
-		ClusterState: clusterState,
-		Connector:    c,
+	sched, err := scheduler.New(clusterState, c)
+	if err != nil {
+		log.Err(err).Msg("could not initiate scheduler")
+		os.Exit(1)
 	}
 
-	sched.Start()
-	sched.Run()
+	if err := sched.Start(); err != nil {
+		log.Err(err).Msg("could not start scheduler")
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+
+	schedulerContext := context.Background()
+
+	schedulerBridge, err := sched.Run(schedulerContext)
+	if err != nil {
+		log.Err(err).Msg("could not run scheduler")
+		os.Exit(1)
+	}
+
+	// TODO setup http server for this:
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		for range ticker.C {
+			schedulerBridge.ClusterStateRequestStream <- struct{}{}
+		}
+	}()
+
+be_alive:
+	for {
+		select {
+		case clusterState := <-schedulerBridge.ClusterStateStream:
+			clusterState.Display()
+		case <-schedulerContext.Done():
+			break be_alive
+		}
+	}
 }
