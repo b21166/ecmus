@@ -145,6 +145,12 @@ func (c *ClusterState) ResetBuffer(vec *mat.VecDense) {
 }
 
 func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
+	log.Info().Msgf(
+		"deploying pod %d on node %d which is on edge",
+		pod.Id,
+		node.Id,
+	)
+
 	if utils.LThan(utils.SubVec(node.Resources, c.NodeResourcesUsed[node.Id]), pod.Deployment.ResourcesRequired) {
 		return fmt.Errorf("not enough resources for pod %d to be deployed on %d", pod.Id, node.Id)
 	}
@@ -163,6 +169,11 @@ func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 }
 
 func (c *ClusterState) DeployCloud(pod *Pod) {
+	log.Info().Msgf(
+		"deploying pod %d to cloud",
+		pod.Id,
+	)
+
 	if len(c.Cloud.Nodes) > 0 {
 		target := c.Cloud.Nodes[rand.Intn(len(c.Cloud.Nodes))]
 		pod.Node = target
@@ -174,6 +185,8 @@ func (c *ClusterState) DeployCloud(pod *Pod) {
 }
 
 func (c *ClusterState) RemovePod(pod *Pod) bool {
+	log.Info().Msgf("removing pod %d", pod.Id)
+
 	ret := c.RemovePodEdge(pod)
 	if !ret {
 		ret = c.RemovePodCloud(pod)
@@ -260,5 +273,51 @@ func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 	return NodesResourcesRemained
 }
 
-func (c *ClusterState) Display() {
+func (c *ClusterState) Display() string {
+	repr := ""
+
+	repr += "SHOWING CLUSTER STATE:\n\n\n"
+	repr += "========{\n"
+	repr += "EDGE NODES:\n"
+	for _, node := range c.Edge.Config.Nodes {
+		nodeDesc := ""
+		nodeDesc += fmt.Sprintf("{node %d (%f, %f)}: ", node.Id, node.Resources.AtVec(0), node.Resources.AtVec(1))
+		for _, pod := range c.Edge.Pods {
+			if pod.Node.Id == node.Id {
+				nodeDesc += fmt.Sprintf(
+					"{pod %d (%f, %f)} || ",
+					pod.Id,
+					pod.Deployment.ResourcesRequired.AtVec(0),
+					pod.Deployment.ResourcesRequired.AtVec(1),
+				)
+			}
+		}
+
+		repr += nodeDesc
+		repr += "\n"
+	}
+	repr += "\nCLOUD NODES:\n"
+
+	// FIXME duplication
+	for _, node := range c.Cloud.Nodes {
+		nodeDesc := ""
+		nodeDesc += fmt.Sprintf("{node %d (%f, %f)}: ", node.Id, node.Resources.AtVec(0), node.Resources.AtVec(1))
+		for _, pod := range c.Cloud.Pods {
+			if pod.Node.Id == node.Id {
+				nodeDesc += fmt.Sprintf(
+					"{pod %d (%f, %f)} || ",
+					pod.Id,
+					pod.Deployment.ResourcesRequired.AtVec(0),
+					pod.Deployment.ResourcesRequired.AtVec(1),
+				)
+			}
+		}
+
+		repr += nodeDesc
+		repr += "\n"
+	}
+
+	repr += "========}\n"
+
+	return repr
 }

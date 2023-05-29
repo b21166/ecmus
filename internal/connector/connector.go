@@ -3,6 +3,7 @@ package connector
 import (
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/logging"
+	"gopkg.in/yaml.v3"
 )
 
 type Connector interface {
@@ -10,7 +11,7 @@ type Connector interface {
 	FindDeployments() error
 	GetClusterState() *model.ClusterState
 
-	Deploy(pod *model.Pod) error
+	Deploy(pod *model.Pod, node *model.Node) error
 	DeletePod(pod *model.Pod) (bool, error)
 	WatchSchedulingEvents() (<-chan *Event, error)
 }
@@ -24,10 +25,15 @@ const (
 )
 
 type Event struct {
-	EventType EventType
-	Pod       *model.Pod
-	Node      *model.Node
-	Status    model.PodStatus
+	EventType EventType       `yaml:"event_type"`
+	Pod       *model.Pod      `yaml:"pod"`
+	Node      *model.Node     `yaml:"node"`
+	Status    model.PodStatus `yaml:"status"`
+}
+
+func (event *Event) String() string {
+	bytes, _ := yaml.Marshal(event)
+	return string(bytes[:])
 }
 
 var log = logging.Get()

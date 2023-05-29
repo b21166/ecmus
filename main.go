@@ -62,8 +62,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	os.Exit(0)
-
 	schedulerContext := context.Background()
 
 	schedulerBridge, err := sched.Run(schedulerContext)
@@ -84,7 +82,7 @@ be_alive:
 	for {
 		select {
 		case clusterState := <-schedulerBridge.ClusterStateStream:
-			clusterState.Display()
+			fmt.Print(clusterState.Display())
 		case <-schedulerContext.Done():
 			break be_alive
 		}

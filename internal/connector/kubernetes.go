@@ -141,8 +141,9 @@ func (kc *KubeConnector) FindDeployments() error {
 
 		resourceList := deployment.Spec.Template.Spec.Containers[0].Resources.Limits
 
+		deploymentName := deployment.GetObjectMeta().GetLabels()["app"]
 		modelDeployment := &model.Deployment{
-			Id: utils.Hash(deployment.GetObjectMeta().GetName()),
+			Id: utils.Hash(deploymentName),
 			ResourcesRequired: mat.NewVecDense(2, []float64{
 				resourceList.Cpu().AsApproximateFloat64(),
 				resourceList.Memory().AsApproximateFloat64() / config.MB,
@@ -150,9 +151,9 @@ func (kc *KubeConnector) FindDeployments() error {
 			Weight: 1, // TODO parse it
 		}
 
-		log.Info().Msgf("found deployment %s", deployment.GetObjectMeta().GetName())
+		log.Info().Msgf("found deployment %s", deploymentName)
 		kc.clusterState.Edge.Config.AddDeployment(modelDeployment)
-		kc.deploymentIdToName[modelDeployment.Id] = deployment.GetObjectMeta().GetName()
+		kc.deploymentIdToName[modelDeployment.Id] = deploymentName
 	}
 
 	log.Info().Msg("deployments found")
@@ -180,12 +181,18 @@ func (kc *KubeConnector) DeletePod(pod *model.Pod) (bool, error) {
 	return true, nil
 }
 
-func (kc *KubeConnector) Deploy(pod *model.Pod) error {
-	if pod.Node == nil {
+func (kc *KubeConnector) Deploy(pod *model.Pod, node *model.Node) error {
+	log.Info().Msgf(
+		"deploying pod %d to node %d",
+		pod.Id,
+		node.Id,
+	)
+
+	if node == nil {
 		return fmt.Errorf("the pod is not allocated to any node")
 	}
 
-	nodeName, ok := kc.nodeIdToName[pod.Node.Id]
+	nodeName, ok := kc.nodeIdToName[node.Id]
 	if !ok {
 		return fmt.Errorf("the pod's node is not mapped to a known node")
 	}
@@ -285,6 +292,7 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 			}
 
 			var newPodStatus model.PodStatus
+			log.Info().Msgf("pod's kubernetes status: %s", v1Pod.Status.Phase)
 
 			switch v1Pod.Status.Phase {
 			case v1.PodPending, v1.PodUnknown:

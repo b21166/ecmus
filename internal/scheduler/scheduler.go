@@ -69,6 +69,11 @@ func (scheduler *Scheduler) Start() error {
 }
 
 func (scheduler *Scheduler) handleEvent(event *connector.Event) {
+	log.Info().Msgf(
+		"got an event:\n%v",
+		event,
+	)
+
 	pod := event.Pod
 
 	switch event.EventType {
@@ -81,6 +86,8 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 
 		if info, ok := scheduler.migrations[pod.Deployment.Id]; ok {
 			if info.phase == POD_RECREATION {
+				log.Info().Msg("the pod was created during migration")
+
 				info.phase++
 				target = info.target
 			} else {
@@ -104,7 +111,7 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 			target = targets[rand.Intn(len(targets))]
 		}
 
-		if err := scheduler.connector.Deploy(pod); err != nil {
+		if err := scheduler.connector.Deploy(pod, target); err != nil {
 			log.Err(err).Msgf(
 				"could not deploy pod %d in connector, the pod is going to be ignored",
 				pod.Id,
@@ -153,10 +160,12 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 				scheduler.clusterState.DeployEdge(pod, event.Node)
 			}
 		} else {
-			// The pod is scheduled on the place expected.
+			log.Info().Msg("the pod is scheduled on the expected node")
+
 			if info, ok := scheduler.migrations[pod.Deployment.Id]; ok {
 				if info.phase == POD_ALLOCATION {
-					// the pod's migration is done.
+					log.Info().Msg("the pod migration is done")
+
 					log.Info().Msgf(
 						"Pod %d migration is done.",
 						pod.Id,
@@ -177,6 +186,8 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 			pod.Status = event.Status
 
 			if pod.Status == model.FINISHED {
+				log.Info().Msgf("pod %d has been finished", pod.Id)
+
 				// Remove it from, because it don't get resources anymore.
 				if pod.Node != nil {
 					scheduler.clusterState.RemovePod(pod)
@@ -185,7 +196,7 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 		}
 
 	case connector.POD_DELETED:
-		log.Info().Msgf("deleting pod %d.", event.Pod.Id)
+		log.Info().Msgf("pod %d has been deleted", event.Pod.Id)
 		scheduler.clusterState.RemovePod(event.Pod)
 	}
 }
@@ -196,12 +207,15 @@ func (scheduler *Scheduler) calcState() {
 }
 
 func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
+	log.Info().Msg("scheduler is running...")
+
 	eventStream, err := scheduler.connector.WatchSchedulingEvents()
 	if err != nil {
 		log.Err(err).Send()
 
 		return SchedulerBridge{}, fmt.Errorf("could not start watching scheduling events")
 	}
+	log.Info().Msg("got event watcher from connector")
 
 	ticker := time.NewTicker(time.Duration(config.SchedulerGeneralConfig.DaemonPeriodDuration) * time.Millisecond)
 	clusterStateRequestStream := make(chan struct{})
@@ -219,10 +233,11 @@ func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 			case <-ticker.C:
 				scheduler.calcState()
 			case <-clusterStateRequestStream:
-				clusterStateStream <- scheduler.clusterState.Clone()
+				clusterStateStream <- scheduler.clusterState // TODO clone
 			}
 		}
 	}()
+	log.Info().Msg("set up scheduler's main life cycle")
 
 	return SchedulerBridge{
 		ClusterStateRequestStream: clusterStateRequestStream,
