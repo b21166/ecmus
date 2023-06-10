@@ -17,17 +17,29 @@ const (
 	STATE_TIME = 1 << 1
 )
 
+type QoSDeploymentInfo struct {
+	NumberOfPodOnEdge int
+	NumberOfPods      int
+}
+
+type QoSResult struct {
+	NumberOfSatisfiedQoSes int
+	DeploymentsQoS         map[int]*QoSDeploymentInfo
+}
+
 // If a pod is in both pre-known and new pods, the new state
 // is assumed, if a pod is both cloud and edge in at the same time,
 // an error will be raised.
-func CalcNumberOfQosViolations(
+// This function has no effect on the input.
+func CalcNumberOfQosSatisfactions(
 	edgeConfig *model.EdgeConfig,
 	preKnownCloudPods []*model.Pod,
 	preKnownEdgePods []*model.Pod,
 	newCloudPods []*model.Pod,
 	newEdgePods []*model.Pod,
-) (int, error) {
+) (QoSResult, error) {
 	deploymentPods := make(map[int]map[int]int)
+	deploymentsQoS := make(map[int]*QoSDeploymentInfo)
 
 	setState := func(state int, pods []*model.Pod) error {
 		for _, pod := range pods {
@@ -62,7 +74,7 @@ func CalcNumberOfQosViolations(
 		{state: NEW_CLOUD, pods: newCloudPods},
 	} {
 		if err := setState(iter.state, iter.pods); err != nil {
-			return 0, err
+			return QoSResult{}, err
 		}
 	}
 
@@ -81,13 +93,21 @@ func CalcNumberOfQosViolations(
 
 		deployment, ok := edgeConfig.DeploymentIdToDeployment[deploymentId]
 		if !ok {
-			return 0, fmt.Errorf("one of the deployment with id %d is not configured at first", deploymentId)
+			return QoSResult{}, fmt.Errorf("one of the deployment with id %d is not configured at first", deploymentId)
 		}
 
 		if deployment.EdgeShare*float64(numberOfPods) >= float64(numberOfPodsOnEdge) {
 			numberOfSatisfiedQoSes += 1
 		}
+
+		deploymentsQoS[deploymentId] = &QoSDeploymentInfo{
+			NumberOfPodOnEdge: numberOfPodsOnEdge,
+			NumberOfPods:      numberOfPods,
+		}
 	}
 
-	return numberOfSatisfiedQoSes, nil
+	return QoSResult{
+		NumberOfSatisfiedQoSes: numberOfSatisfiedQoSes,
+		DeploymentsQoS:         deploymentsQoS,
+	}, nil
 }

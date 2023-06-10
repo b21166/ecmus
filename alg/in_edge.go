@@ -14,54 +14,58 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-func filterCandidates(neededResources *mat.VecDense, candidates []*model.Candidate) ([]*model.Candidate, error) {
-	return nil, nil
-}
+// TODO fix candidate list
+// func filterCandidates(neededResources *mat.VecDense, candidates []*model.Candidate) ([]*model.Candidate, error) {
+// 	return nil, nil
+// }
 
 func CalcState(c *model.ClusterState, neededResources *mat.VecDense) (model.FreeEdgeSolution, error) {
-	cost, freedPods := EvalFreePods(c, neededResources)
+	if utils.LThan(c.Edge.Config.Resources, neededResources) {
+		return model.FreeEdgeSolution{}, fmt.Errorf("resource request limit exceeded for %s", utils.ToString(neededResources))
+	}
+
+	freedPods := EvalFreePods(c, neededResources)
 	migrations := CalcMigrations(c, freedPods)
 
 	return model.FreeEdgeSolution{
-		Score:      -cost,
 		FreedPods:  freedPods,
 		Migrations: migrations,
 	}, nil
 }
 
-func GetMaximumScore(c *model.ClusterState, oNeededResources *mat.VecDense) (model.FreeEdgeSolution, error) {
-	if utils.LThan(c.Edge.Config.Resources, oNeededResources) {
-		return model.FreeEdgeSolution{}, fmt.Errorf("resource request limit exceeded for %s", utils.ToString(oNeededResources))
+func GetMaximumScore(c *model.ClusterState, neededResources *mat.VecDense) (model.FreeEdgeSolution, error) {
+	if utils.LThan(c.Edge.Config.Resources, neededResources) {
+		return model.FreeEdgeSolution{}, fmt.Errorf("resource request limit exceeded for %s", utils.ToString(neededResources))
 	}
 
-	neededResources := mat.NewVecDense(oNeededResources.Len(), nil)
-	neededResources.SubVec(oNeededResources, c.ResourcesBuffer)
+	// TODO fix candidate list
+	// candidates, err := filterCandidates(neededResources, c.CandidatesList)
+	// if err != nil {
+	// 	return model.FreeEdgeSolution{}, err
+	// }
 
-	candidates, err := filterCandidates(neededResources, c.CandidatesList)
+	// if len(candidates) == 0 {
+	feSol, err := CalcState(c, neededResources)
 	if err != nil {
 		return model.FreeEdgeSolution{}, err
 	}
 
-	if len(candidates) == 0 {
-		feSol, err := CalcState(c, neededResources)
-		if err != nil {
-			return model.FreeEdgeSolution{}, err
-		}
+	return feSol, nil
 
-		return feSol, nil
-	}
+	// TODO fix candidate list
+	// }
 
-	var chosenCandidate *model.Candidate
-	chosenScore := math.Inf(-1)
+	// var chosenCandidate *model.Candidate
+	// chosenScore := math.Inf(-1)
 
-	for _, candidate := range c.CandidatesList {
-		if candidate.Solution.Score > chosenScore {
-			chosenCandidate = candidate
-			chosenScore = candidate.Solution.Score
-		}
-	}
+	// for _, candidate := range c.CandidatesList {
+	// 	if candidate.Solution.Score > chosenScore {
+	// 		chosenCandidate = candidate
+	// 		chosenScore = candidate.Solution.Score
+	// 	}
+	// }
 
-	return chosenCandidate.Solution, nil
+	// return chosenCandidate.Solution, nil
 }
 
 func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, choices *[][]*model.Pod) {
@@ -83,16 +87,16 @@ func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, cho
 func GetPossiblePodChoices(c *model.ClusterState, freedPods []*model.Pod) (podChoices [][]*model.Pod) {
 	freedPodIds := utils.SliceToMap(freedPods, func(pod *model.Pod) int { return pod.Id })
 
-	remPods := make([]*model.Pod, 0)
+	remainingPods := make([]*model.Pod, 0)
 	for _, pod := range c.Edge.Pods {
 		if ok, isIn := freedPodIds[pod.Id]; ok && isIn {
 			continue
 		}
-		remPods = append(remPods, pod)
+		remainingPods = append(remainingPods, pod)
 	}
 
 	for migrationCount := 1; migrationCount <= config.SchedulerGeneralConfig.MaximumMigrations; migrationCount++ {
-		ChooseFromPods(remPods, migrationCount, 0, make([]*model.Pod, 0), &podChoices)
+		ChooseFromPods(remainingPods, migrationCount, 0, make([]*model.Pod, 0), &podChoices)
 	}
 
 	return
@@ -125,6 +129,10 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 		par := make([][]int, n+1)
 		for i := range dp {
 			dp[i] = make([]float64, m+1)
+			for j := range dp[i] {
+				dp[i][j] = math.Inf(-1)
+			}
+
 			par[i] = make([]int, m+1)
 		}
 		dp[0][0] = deFragmentation
@@ -134,7 +142,7 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 			node := c.Edge.Config.Nodes[i]
 			for j := 0; j < m+1; j++ {
 				resources := mat.NewVecDense(node.Resources.Len(), nil)
-				for k := i; k >= 0; k-- {
+				for k := j; k >= 0; k-- {
 					if utils.LEThan(resources, nodeResourcesRemained[node.Id]) {
 						currentDeFragmentation := utils.CalcDeFragmentation(
 							utils.SubVec(nodeResourcesRemained[node.Id], resources),
@@ -144,10 +152,10 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 							maxResources,
 						)
 
-						current := dp[i-1][j] + currentDeFragmentation
-						if dp[i][j] < current {
+						current := dp[i-1][k] + currentDeFragmentation
+						if dp[i][k] < current {
 							dp[i][j] = current
-							par[i][j] = j
+							par[i][j] = k
 						}
 					}
 
@@ -212,58 +220,62 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 
 // TODO move it to config
 const (
-	FRAGMENTATION_COEFFICIENT float64 = 1
-	WEIGHT_COEFFICIENT        float64 = 2
+	FRAGMENTATION_FREEING_COEFFICIENT float64 = 1
+	QOS_FREEING_COEFFICIENT           float64 = 2
 )
 
-func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) (float64, []*model.Pod) {
+func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.Pod {
 	PodsOfNode := make(map[int][]*model.Pod)
 	for _, node := range c.Edge.Config.Nodes {
 		PodsOfNode[node.Id] = make([]*model.Pod, 0)
 	}
 
-	var maxWeight float64
 	for _, pod := range c.Edge.Pods {
-		maxWeight = math.Max(maxWeight, pod.Deployment.Weight)
 		PodsOfNode[pod.Node.Id] = append(PodsOfNode[pod.Node.Id], pod)
+	}
+
+	qosResult, err := CalcNumberOfQosSatisfactions(c.Edge.Config, c.Cloud.Pods, c.Edge.Pods, nil, nil)
+	if err != nil {
+		log.Err(err).Send()
+
+		return nil
 	}
 
 	maximumResources := c.Edge.Config.GetMaximumResources()
 
-	costOfFreeingPod := func(pod *model.Pod) float64 {
-		var cost float64
+	scoreOfFreeingPod := func(pod *model.Pod) float64 {
+		var score float64
 		fragmentation := utils.CalcDeFragmentation(pod.Deployment.ResourcesRequired, maximumResources)
-		cost += fragmentation * FRAGMENTATION_COEFFICIENT
-		cost -= pod.Deployment.Weight * WEIGHT_COEFFICIENT
-
-		return cost
-	}
-
-	needToFreeResources := utils.SubVec(c.Edge.Config.Resources, leastResource)
-	for i := 0; i < needToFreeResources.Len(); i++ {
-		if needToFreeResources.AtVec(i) < 0 {
-			needToFreeResources.SetVec(i, 0)
+		score += fragmentation * FRAGMENTATION_FREEING_COEFFICIENT
+		info := qosResult.DeploymentsQoS[pod.Deployment.Id]
+		if float64(info.NumberOfPodOnEdge)/float64(info.NumberOfPods) >= pod.Deployment.EdgeShare &&
+			float64(info.NumberOfPodOnEdge-1)/float64(info.NumberOfPods) < pod.Deployment.EdgeShare {
+			score -= 1 / float64(len(c.Edge.Config.Deployments)) * QOS_FREEING_COEFFICIENT
 		}
+
+		return score
 	}
+
+	needToFreeResources := utils.SubVec(leastResource, utils.SubVec(c.Edge.Config.Resources, c.Edge.UsedResources))
 
 	edgePods := make([]*model.Pod, len(c.Edge.Pods))
 	copy(edgePods, c.Edge.Pods)
-	sort.Sort(&Sorter[model.Pod]{
-		objects: edgePods,
-		by:      costOfFreeingPod,
-	})
 
 	currentFreedResources := mat.NewVecDense(needToFreeResources.Len(), nil)
 	freedPods := make([]*model.Pod, 0)
-	var cost float64
 
 	for i := 0; i < len(edgePods) && utils.LThan(currentFreedResources, needToFreeResources); i++ {
+		sort.Sort(&ReverseSorter[model.Pod]{
+			objects: edgePods[i:],
+			by:      scoreOfFreeingPod,
+		})
+
 		utils.SAddVec(currentFreedResources, edgePods[i].Deployment.ResourcesRequired)
-		cost += costOfFreeingPod(edgePods[i])
+		qosResult.DeploymentsQoS[edgePods[i].Deployment.Id].NumberOfPodOnEdge -= 1
 		freedPods = append(freedPods, edgePods[i])
 	}
 
-	return cost, freedPods
+	return freedPods
 }
 
 func MapPodsToEdge(c *model.ClusterState, pods []*model.Pod) map[int]*model.Node {

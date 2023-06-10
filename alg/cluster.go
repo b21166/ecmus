@@ -5,7 +5,16 @@ import (
 
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
+	"github.com/amsen20/ecmus/logging"
 	"gonum.org/v1/gonum/mat"
+)
+
+var log = logging.Get()
+
+// TODO move it to config
+const (
+	FRAGMENTATION_DECISION_COEFFICIENT float64 = 1
+	QOS_DECISION_COEFFICIENT           float64 = 1
 )
 
 func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.DecisionForNewPods {
@@ -37,16 +46,39 @@ func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.D
 		}
 
 		currentDecision := model.DecisionForNewPods{
-			Score:                     -freeEdgeSol.Score,
 			EdgeToCloudOffloadingPods: freeEdgeSol.FreedPods,
 			ToEdgePods:                edgeNewPods,
 			ToCloudPods:               cloudNewPods,
 			Migrations:                freeEdgeSol.Migrations,
 		}
 
-		for _, pod := range edgeNewPods {
-			currentDecision.Score += WEIGHT_COEFFICIENT * pod.Deployment.Weight
+		newCloudPods := make([]*model.Pod, 0)
+		newCloudPods = append(newCloudPods, currentDecision.EdgeToCloudOffloadingPods...)
+		newCloudPods = append(newCloudPods, currentDecision.ToCloudPods...)
+
+		qosResult, err := CalcNumberOfQosSatisfactions(
+			c.Edge.Config,
+			c.Cloud.Pods,
+			c.Edge.Pods,
+			newCloudPods,
+			currentDecision.ToEdgePods,
+		)
+		if err != nil {
+			log.Err(err).Send()
+
+			continue
 		}
+
+		currentDecision.Score += QOS_DECISION_COEFFICIENT * float64(qosResult.NumberOfSatisfiedQoSes) / float64(len(c.Edge.Config.Deployments))
+
+		maxResources := c.Edge.Config.GetMaximumResources()
+		nodeResourcesRemained := c.GetNodesResourcesRemained()
+		var deFragmentation float64
+		for _, resourcesRemained := range nodeResourcesRemained {
+			deFragmentation += utils.CalcDeFragmentation(resourcesRemained, maxResources)
+		}
+
+		currentDecision.Score += FRAGMENTATION_DECISION_COEFFICIENT * deFragmentation
 
 		if currentDecision.Score > bestDecision.Score {
 			bestDecision = currentDecision

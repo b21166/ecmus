@@ -10,7 +10,6 @@ type Migration struct {
 }
 
 type FreeEdgeSolution struct {
-	Score      float64
 	FreedPods  []*Pod
 	Migrations []*Migration
 }

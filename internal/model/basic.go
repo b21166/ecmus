@@ -9,9 +9,7 @@ import (
 type Deployment struct {
 	Id                int
 	ResourcesRequired *mat.VecDense
-
-	// TODO score rule
-	Weight float64
+	EdgeShare         float64
 }
 
 type Node struct {
@@ -38,11 +36,11 @@ func (deployment *Deployment) MarshalYAML() (interface{}, error) {
 	return &struct {
 		Id                int     `yaml:"id"`
 		ResourcesRequired string  `yaml:"resources"`
-		Weight            float64 `yaml:"weight"`
+		EdgeShare         float64 `yaml:"edge_share"`
 	}{
 		Id:                deployment.Id,
 		ResourcesRequired: utils.ToString(deployment.ResourcesRequired),
-		Weight:            deployment.Weight,
+		EdgeShare:         deployment.EdgeShare,
 	}, nil
 }
 

@@ -40,7 +40,6 @@ type ClusterState struct {
 	CandidatesList      []*Candidate
 	CloudToEdgeDecision DecisionForNewPods
 
-	ResourcesBuffer   *mat.VecDense
 	NodeResourcesUsed map[int]*mat.VecDense
 	PodsMap           map[int]*Pod
 }
@@ -63,7 +62,6 @@ func NewClusterState() *ClusterState {
 	return &ClusterState{
 		Edge:              newEdgeState(),
 		Cloud:             &CloudState{},
-		ResourcesBuffer:   mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil),
 		PodsMap:           make(map[int]*Pod),
 		NodeResourcesUsed: make(map[int]*mat.VecDense),
 	}
@@ -110,8 +108,6 @@ func (c *ClusterState) Clone() *ClusterState {
 		ret.NodeResourcesUsed[nodeId] = newRes
 	}
 
-	ret.ResourcesBuffer.CloneFromVec(c.ResourcesBuffer)
-
 	return ret
 }
 
@@ -132,18 +128,6 @@ func (c *ClusterState) AddNode(n *Node, where string) {
 	log.Info().Msg("added to edge")
 }
 
-func (c *ClusterState) AddToBuffer(vec *mat.VecDense) {
-	utils.SAddVec(c.ResourcesBuffer, vec)
-}
-
-func (c *ClusterState) RemoveFromBuffer(vec *mat.VecDense) {
-	utils.SSubVec(c.ResourcesBuffer, vec)
-}
-
-func (c *ClusterState) ResetBuffer(vec *mat.VecDense) {
-	c.ResourcesBuffer.Zero()
-}
-
 func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 	log.Info().Msgf(
 		"deploying pod %d on node %d which is on edge",
@@ -157,8 +141,6 @@ func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 
 	c.Edge.Pods = append(c.Edge.Pods, pod)
 	pod.Node = node
-
-	c.AddToBuffer(pod.Deployment.ResourcesRequired)
 
 	utils.SAddVec(c.NodeResourcesUsed[node.Id], pod.Deployment.ResourcesRequired)
 	utils.SAddVec(c.Edge.UsedResources, pod.Deployment.ResourcesRequired)
@@ -233,19 +215,12 @@ func (c *ClusterState) RemovePodEdge(pod *Pod) bool {
 
 	c.Edge.Pods[pod_ind] = c.Edge.Pods[len(c.Edge.Pods)-1]
 	c.Edge.Pods = c.Edge.Pods[:len(c.Edge.Pods)-1]
-	c.RemoveFromBuffer(pod.Deployment.ResourcesRequired)
 
 	node := pod.Node
 	utils.SSubVec(c.NodeResourcesUsed[node.Id], pod.Deployment.ResourcesRequired)
 	utils.SSubVec(c.Edge.UsedResources, pod.Deployment.ResourcesRequired)
 
 	return true
-}
-
-func (c *ClusterState) Update(cl []*Candidate, buffer *mat.VecDense, dec DecisionForNewPods) {
-	c.CandidatesList = cl
-	c.CloudToEdgeDecision = dec
-	c.RemoveFromBuffer(buffer)
 }
 
 func (c *ClusterState) GetNodeIdToNode() map[int]*Node {

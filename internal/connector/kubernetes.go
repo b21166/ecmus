@@ -148,7 +148,7 @@ func (kc *KubeConnector) FindDeployments() error {
 				resourceList.Cpu().AsApproximateFloat64(),
 				resourceList.Memory().AsApproximateFloat64() / config.MB,
 			}),
-			Weight: 1, // TODO parse it
+			EdgeShare: 1, // TODO parse it
 		}
 
 		log.Info().Msgf("found deployment %s", deploymentName)
