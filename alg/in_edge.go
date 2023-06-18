@@ -10,7 +10,6 @@ import (
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
-	"github.com/emirpasic/gods/trees/binaryheap"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -102,114 +101,147 @@ func GetPossiblePodChoices(c *model.ClusterState, freedPods []*model.Pod) (podCh
 	return
 }
 
-func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migration {
-	possiblePodChoices := GetPossiblePodChoices(c, freedPods)
+func FitInEdge(
+	pods []*model.Pod,
+	edgeConfig *model.EdgeConfig,
+	nodeResourcesRemained map[int]*mat.VecDense,
+	maxResources *mat.VecDense,
+) (float64, map[int]*model.Node) {
+	n := len(edgeConfig.Nodes)
+	m := len(pods)
+	dp := make([][]float64, n+1)
+	par := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]float64, m+1)
+		for j := range dp[i] {
+			dp[i][j] = math.Inf(-1)
+		}
 
-	type migrations struct {
-		fragmentationInc float64
-		migrations       []*model.Migration
+		par[i] = make([]int, m+1)
 	}
+	dp[0][0] = 0
+	par[0][0] = -1
 
-	maxResources := c.Edge.Config.GetMaximumResources()
+	for i := 1; i < n+1; i++ {
+		node := edgeConfig.Nodes[i-1]
+		for j := 0; j < m+1; j++ {
+			resources := mat.NewVecDense(node.Resources.Len(), nil)
+			for k := j; k >= 0; k-- {
+				if utils.LEThan(resources, nodeResourcesRemained[node.Id]) {
+					currentDeFragmentation := utils.CalcDeFragmentation(
+						utils.SubVec(nodeResourcesRemained[node.Id], resources),
+						maxResources,
+					)
 
-	nodeResourcesRemained := c.GetNodesResourcesRemained()
-
-	calcDp := func(migratedPods []*model.Pod) migrations {
-		var deFragmentation float64
-		deFragmentation = 0
-		for _, pod := range migratedPods {
-			deFragmentation -= utils.CalcDeFragmentation(nodeResourcesRemained[pod.Node.Id], maxResources)
-			utils.SAddVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
-			deFragmentation += utils.CalcDeFragmentation(nodeResourcesRemained[pod.Node.Id], maxResources)
-		}
-
-		n := len(c.Edge.Config.Nodes)
-		m := len(migratedPods)
-		dp := make([][]float64, n+1)
-		par := make([][]int, n+1)
-		for i := range dp {
-			dp[i] = make([]float64, m+1)
-			for j := range dp[i] {
-				dp[i][j] = math.Inf(-1)
-			}
-
-			par[i] = make([]int, m+1)
-		}
-		dp[0][0] = deFragmentation
-		par[0][0] = -1
-
-		for i := 1; i < n+1; i++ {
-			node := c.Edge.Config.Nodes[i]
-			for j := 0; j < m+1; j++ {
-				resources := mat.NewVecDense(node.Resources.Len(), nil)
-				for k := j; k >= 0; k-- {
-					if utils.LEThan(resources, nodeResourcesRemained[node.Id]) {
-						currentDeFragmentation := utils.CalcDeFragmentation(
-							utils.SubVec(nodeResourcesRemained[node.Id], resources),
-							maxResources,
-						) - utils.CalcDeFragmentation(
-							nodeResourcesRemained[node.Id],
-							maxResources,
-						)
-
-						current := dp[i-1][k] + currentDeFragmentation
-						if dp[i][k] < current {
-							dp[i][j] = current
-							par[i][j] = k
-						}
+					current := dp[i-1][k] + currentDeFragmentation
+					if dp[i][j] < current {
+						dp[i][j] = current
+						par[i][j] = k
 					}
+				}
 
-					if k > 0 {
-						utils.SAddVec(resources, migratedPods[k-1].Deployment.ResourcesRequired)
-					}
+				if k > 0 {
+					utils.SAddVec(resources, pods[k-1].Deployment.ResourcesRequired)
 				}
 			}
 		}
+	}
+
+	i := n
+	j := m
+
+	for j >= 0 && dp[i][j] < 0 {
+		j--
+	}
+
+	if j < 0 {
+		return math.Inf(-1), make(map[int]*model.Node)
+	}
+
+	ret := make(map[int]*model.Node)
+
+	for i > 0 {
+		nextJ := par[i][j]
+		if nextJ < j {
+			for k := nextJ; k < j; k++ {
+				ret[pods[k].Id] = edgeConfig.Nodes[i-1]
+			}
+		}
+
+		j = nextJ
+		i--
+	}
+
+	return dp[n][m], ret
+}
+
+func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migration {
+	type migrations struct {
+		deFragmentation float64
+		migrations      []*model.Migration
+	}
+
+	maxResources := c.Edge.Config.GetMaximumResources()
+	nodeResourcesRemained := c.GetNodesResourcesRemained()
+
+	for _, pod := range freedPods {
+		if pod.Node == nil {
+			continue
+		}
+
+		utils.SAddVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
+	}
+
+	var currentDeFragmentation float64
+
+	for _, node := range c.Edge.Config.Nodes {
+		currentDeFragmentation += utils.CalcDeFragmentation(nodeResourcesRemained[node.Id], maxResources)
+	}
+
+	bestMigrations := migrations{
+		deFragmentation: currentDeFragmentation,
+		migrations:      nil,
+	}
+
+	calcMigrations := func(migratedPods []*model.Pod) migrations {
+		for _, pod := range migratedPods {
+			utils.SAddVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
+		}
+
+		deFragmentation, mapping := FitInEdge(migratedPods, c.Edge.Config, nodeResourcesRemained, maxResources)
 
 		for _, pod := range migratedPods {
 			utils.SSubVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
 		}
 
-		if dp[n][m] < 0 {
-			return migrations{
-				fragmentationInc: 0,
-				migrations:       nil,
-			}
-		}
-
-		i := n
-		j := m
 		ret := migrations{
-			fragmentationInc: dp[n][m],
-			migrations:       nil,
+			deFragmentation: deFragmentation,
+			migrations:      nil,
 		}
-		for i > 0 {
-			nextJ := par[i][j]
-			if nextJ < j {
-				for k := nextJ; k < j; k++ {
-					ret.migrations = append(ret.migrations, &model.Migration{
-						Pod:  migratedPods[k],
-						Node: c.Edge.Config.Nodes[i],
-					})
-				}
-			}
 
-			j = nextJ
-			i--
+		if deFragmentation < 0 || len(mapping) != len(migratedPods) {
+			return ret
+		}
+		for _, pod := range migratedPods {
+			node, ok := mapping[pod.Id]
+			if !ok {
+				log.Warn().Msgf("this should not happen! pod %d should find a node after migration", pod.Id)
+				continue
+			}
+			ret.migrations = append(ret.migrations, &model.Migration{
+				Pod:  pod,
+				Node: node,
+			})
 		}
 
 		return ret
 	}
 
-	bestMigrations := migrations{
-		fragmentationInc: 0,
-		migrations:       nil,
-	}
-
+	possiblePodChoices := GetPossiblePodChoices(c, freedPods)
 	for _, possiblePodChoice := range possiblePodChoices {
 		for migratedPods := range utils.Permutations(possiblePodChoice) {
-			currentMigrations := calcDp(migratedPods)
-			if bestMigrations.fragmentationInc < currentMigrations.fragmentationInc {
+			currentMigrations := calcMigrations(migratedPods)
+			if bestMigrations.deFragmentation < currentMigrations.deFragmentation {
 				bestMigrations = currentMigrations
 			}
 		}
@@ -217,12 +249,6 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 
 	return bestMigrations.migrations
 }
-
-// TODO move it to config
-const (
-	FRAGMENTATION_FREEING_COEFFICIENT float64 = 1
-	QOS_FREEING_COEFFICIENT           float64 = 2
-)
 
 func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.Pod {
 	PodsOfNode := make(map[int][]*model.Pod)
@@ -246,12 +272,13 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.P
 	scoreOfFreeingPod := func(pod *model.Pod) float64 {
 		var score float64
 		fragmentation := utils.CalcDeFragmentation(pod.Deployment.ResourcesRequired, maximumResources)
-		score += fragmentation * FRAGMENTATION_FREEING_COEFFICIENT
 		info := qosResult.DeploymentsQoS[pod.Deployment.Id]
-		if float64(info.NumberOfPodOnEdge)/float64(info.NumberOfPods) >= pod.Deployment.EdgeShare &&
-			float64(info.NumberOfPodOnEdge-1)/float64(info.NumberOfPods) < pod.Deployment.EdgeShare {
-			score -= 1 / float64(len(c.Edge.Config.Deployments)) * QOS_FREEING_COEFFICIENT
-		}
+		score = QoS(
+			float64(info.NumberOfPodOnEdge-1)/float64(info.NumberOfPods), pod.Deployment.EdgeShare,
+		) - QoS(
+			float64(info.NumberOfPodOnEdge)/float64(info.NumberOfPods), pod.Deployment.EdgeShare,
+		)
+		score /= fragmentation
 
 		return score
 	}
@@ -276,78 +303,4 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.P
 	}
 
 	return freedPods
-}
-
-func MapPodsToEdge(c *model.ClusterState, pods []*model.Pod) map[int]*model.Node {
-	maximumResources := c.Edge.Config.GetMaximumResources()
-	nodeToResRem := c.GetNodesResourcesRemained()
-
-	podComparator := func(a, b interface{}) int {
-		podA := a.(*model.Pod)
-		podB := b.(*model.Pod)
-
-		normA := utils.CalcDeFragmentation(podA.Deployment.ResourcesRequired, maximumResources)
-		normB := utils.CalcDeFragmentation(podB.Deployment.ResourcesRequired, maximumResources)
-
-		if normA < normB {
-			// move A further
-			return 1
-		}
-		if normA == normB {
-			return 0
-		}
-		// move B further
-		return -1
-	}
-
-	nodeComparator := func(a, b interface{}) int {
-		nodeA := a.(*model.Node)
-		nodeB := b.(*model.Node)
-
-		normA := utils.CalcDeFragmentation(nodeToResRem[nodeA.Id], maximumResources)
-		normB := utils.CalcDeFragmentation(nodeToResRem[nodeB.Id], maximumResources)
-
-		if normA < normB {
-			// move B further
-			return -1
-		}
-		if normA == normB {
-			return 0
-		}
-		// move A further
-		return 1
-	}
-
-	ordererPods := binaryheap.NewWith(podComparator)
-	ordererNodes := binaryheap.NewWith(nodeComparator)
-
-	for _, pod := range pods {
-		ordererPods.Push(pod)
-	}
-
-	nodes := make([]*model.Node, len(c.Edge.Config.Nodes))
-	copy(nodes, c.Edge.Config.Nodes)
-
-	podsMapping := make(map[int]*model.Node)
-	for !ordererPods.Empty() {
-		firstPod, _ := ordererPods.Pop()
-		pod := firstPod.(*model.Pod)
-
-		nodes := make([]*model.Node, 0)
-		for !ordererNodes.Empty() {
-			firstNode, _ := ordererNodes.Pop()
-			node := firstNode.(*model.Node)
-			nodes = append(nodes, node)
-
-			if utils.LEThan(pod.Deployment.ResourcesRequired, nodeToResRem[node.Id]) {
-				podsMapping[pod.Id] = node
-			}
-		}
-
-		for _, node := range nodes {
-			ordererNodes.Push(node)
-		}
-	}
-
-	return podsMapping
 }

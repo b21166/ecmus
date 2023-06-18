@@ -1,19 +1,15 @@
-// Because it is a testing package, no errors are returned,
+// Because it is for testing the package, no errors are returned,
 // all problems cause a panic.
 
-package testing_tool
+package alg
 
 import (
 	"fmt"
 
-	"github.com/amsen20/ecmus/alg"
 	"github.com/amsen20/ecmus/internal/model"
-	"github.com/amsen20/ecmus/logging"
 )
 
-var log = logging.Get()
-
-func ApplyDecision(clusterState *model.ClusterState, decision model.DecisionForNewPods) {
+func applyDecision(clusterState *model.ClusterState, decision model.DecisionForNewPods) {
 	for _, pod := range decision.EdgeToCloudOffloadingPods {
 		if ok := clusterState.RemovePod(pod); !ok {
 			panic(fmt.Sprintf("pod %d was not on edge, but tried to be removed", pod.Id))
@@ -34,7 +30,13 @@ func ApplyDecision(clusterState *model.ClusterState, decision model.DecisionForN
 		clusterState.DeployCloud(pod)
 	}
 
-	edgeMapping := alg.MapPodsToEdge(clusterState, decision.ToEdgePods)
+	_, edgeMapping := FitInEdge(
+		decision.ToEdgePods,
+		clusterState.Edge.Config,
+		clusterState.GetNodesResourcesRemained(),
+		clusterState.Edge.Config.GetMaximumResources(),
+	)
+
 	for _, pod := range decision.ToEdgePods {
 		if node, ok := edgeMapping[pod.Id]; ok {
 			if err := clusterState.DeployEdge(pod, node); err != nil {

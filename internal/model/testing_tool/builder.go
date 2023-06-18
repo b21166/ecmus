@@ -38,11 +38,12 @@ func New() *Builder {
 	}
 }
 
-func (builder *Builder) ImportDeployments(deploymentsDesc []DeploymentDesc) {
+func (builder *Builder) ImportDeployments(deploymentsDesc []*DeploymentDesc) {
 	for ind, deploymentDesc := range deploymentsDesc {
 		deployment := &model.Deployment{
 			Id:                ind,
 			ResourcesRequired: mat.NewVecDense(2, []float64{deploymentDesc.Cpu, deploymentDesc.Memory}),
+			EdgeShare:         deploymentDesc.EdgeShare,
 		}
 		builder.deployments[deploymentDesc.Name] = deployment
 		builder.deploymentName[deployment.Id] = deploymentDesc.Name
@@ -71,6 +72,10 @@ func (builder *Builder) GetPods(podsDesc []string) []*model.Pod {
 
 func (builder *Builder) GetCluster(edge map[*NodeDesc][]string, cloudPodsDesc []string) *model.ClusterState {
 	clusterState := model.NewClusterState()
+
+	for _, deployment := range builder.deployments {
+		clusterState.Edge.Config.AddDeployment(deployment)
+	}
 
 	for nodeDesc, podsDesc := range edge {
 		node := &model.Node{
@@ -109,8 +114,8 @@ func (builder *Builder) Expect(got *model.ClusterState, wantEdge map[*NodeDesc][
 	for _, pod := range got.Edge.Pods {
 		key := builder.deploymentName[pod.Deployment.Id]
 		gotDeploymentOccurrences[key] = append(gotDeploymentOccurrences[key], &NodeDesc{
-			Cpu:    pod.Deployment.ResourcesRequired.AtVec(0),
-			Memory: pod.Deployment.ResourcesRequired.AtVec(1),
+			Cpu:    pod.Node.Resources.AtVec(0),
+			Memory: pod.Node.Resources.AtVec(1),
 		})
 	}
 	for _, pod := range got.Cloud.Pods {

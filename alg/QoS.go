@@ -23,8 +23,16 @@ type QoSDeploymentInfo struct {
 }
 
 type QoSResult struct {
-	NumberOfSatisfiedQoSes int
-	DeploymentsQoS         map[int]*QoSDeploymentInfo
+	Score          float64
+	DeploymentsQoS map[int]*QoSDeploymentInfo
+}
+
+func QoS(currentShare, promisedShare float64) float64 {
+	if currentShare >= promisedShare {
+		return 1
+	}
+
+	return 0.5 / promisedShare * currentShare
 }
 
 // If a pod is in both pre-known and new pods, the new state
@@ -78,7 +86,7 @@ func CalcNumberOfQosSatisfactions(
 		}
 	}
 
-	numberOfSatisfiedQoSes := 0
+	var score float64
 
 	for deploymentId, PodToState := range deploymentPods {
 		numberOfPods := 0
@@ -96,9 +104,7 @@ func CalcNumberOfQosSatisfactions(
 			return QoSResult{}, fmt.Errorf("one of the deployment with id %d is not configured at first", deploymentId)
 		}
 
-		if deployment.EdgeShare*float64(numberOfPods) >= float64(numberOfPodsOnEdge) {
-			numberOfSatisfiedQoSes += 1
-		}
+		score += QoS(float64(numberOfPodsOnEdge)/float64(numberOfPods), deployment.EdgeShare)
 
 		deploymentsQoS[deploymentId] = &QoSDeploymentInfo{
 			NumberOfPodOnEdge: numberOfPodsOnEdge,
@@ -107,7 +113,7 @@ func CalcNumberOfQosSatisfactions(
 	}
 
 	return QoSResult{
-		NumberOfSatisfiedQoSes: numberOfSatisfiedQoSes,
-		DeploymentsQoS:         deploymentsQoS,
+		Score:          score,
+		DeploymentsQoS: deploymentsQoS,
 	}, nil
 }

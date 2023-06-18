@@ -54,7 +54,8 @@ func newEdgeConfig() *EdgeConfig {
 
 func newEdgeState() *EdgeState {
 	return &EdgeState{
-		Config: newEdgeConfig(),
+		Config:        newEdgeConfig(),
+		UsedResources: mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil),
 	}
 }
 
@@ -81,7 +82,7 @@ func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
 }
 
 func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
-	ret := mat.NewVecDense(0, nil)
+	ret := mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil)
 	for _, node := range ec.Nodes {
 		for i := 0; i < node.Resources.Len(); i++ {
 			ret.SetVec(i, math.Max(ret.AtVec(i), node.Resources.AtVec(i)))

@@ -11,12 +11,6 @@ import (
 
 var log = logging.Get()
 
-// TODO move it to config
-const (
-	FRAGMENTATION_DECISION_COEFFICIENT float64 = 1
-	QOS_DECISION_COEFFICIENT           float64 = 1
-)
-
 func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.DecisionForNewPods {
 	bestDecision := model.DecisionForNewPods{
 		Score: math.Inf(-1),
@@ -69,16 +63,16 @@ func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.D
 			continue
 		}
 
-		currentDecision.Score += QOS_DECISION_COEFFICIENT * float64(qosResult.NumberOfSatisfiedQoSes) / float64(len(c.Edge.Config.Deployments))
+		currentDecision.Score = qosResult.Score
 
-		maxResources := c.Edge.Config.GetMaximumResources()
-		nodeResourcesRemained := c.GetNodesResourcesRemained()
-		var deFragmentation float64
-		for _, resourcesRemained := range nodeResourcesRemained {
-			deFragmentation += utils.CalcDeFragmentation(resourcesRemained, maxResources)
-		}
+		// maxResources := c.Edge.Config.GetMaximumResources()
+		// nodeResourcesRemained := c.GetNodesResourcesRemained()
+		// var deFragmentation float64
+		// for _, resourcesRemained := range nodeResourcesRemained {
+		// 	deFragmentation += utils.CalcDeFragmentation(resourcesRemained, maxResources)
+		// }
 
-		currentDecision.Score += FRAGMENTATION_DECISION_COEFFICIENT * deFragmentation
+		// currentDecision.Score += FRAGMENTATION_DECISION_COEFFICIENT * deFragmentation
 
 		if currentDecision.Score > bestDecision.Score {
 			bestDecision = currentDecision
