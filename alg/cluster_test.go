@@ -102,18 +102,22 @@ func TestComprehensiveScenario(t *testing.T) {
 		)
 	})
 
-	var toDeletePod *model.Pod
-	for _, pod := range clusterState.Edge.Pods {
-		if pod.Deployment.Id == builder.Deployments["B"].Id {
-			toDeletePod = pod
-			break
+	deletePod := func(deploymentName string) {
+		var toDeletePod *model.Pod
+		for _, pod := range clusterState.Edge.Pods {
+			if pod.Deployment.Id == builder.Deployments[deploymentName].Id {
+				toDeletePod = pod
+				break
+			}
 		}
+
+		if !clusterState.RemovePod(toDeletePod) {
+			t.Fatalf("pod didn't remove successfully")
+		}
+
 	}
 
-	if !clusterState.RemovePod(toDeletePod) {
-		t.Fatalf("pod didn't remove successfully")
-	}
-
+	deletePod("B")
 	fmt.Println(clusterState.Display())
 	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"D"}))
 	applyDecision(clusterState, decision)
@@ -130,4 +134,19 @@ func TestComprehensiveScenario(t *testing.T) {
 		)
 	})
 
+	deletePod("D")
+	applySuggestion(clusterState, SuggestCloudToEdge(clusterState))
+	applySuggestion(clusterState, SuggestCloudToEdge(clusterState))
+
+	t.Run("Cloud to edge", func(t *testing.T) {
+		fmt.Println(clusterState.Display())
+		builder.Expect(
+			clusterState, map[*testing_tool.NodeDesc][]string{
+				{Cpu: 2, Memory: 4}: {"A", "C", "C"},
+				{Cpu: 2, Memory: 2}: {"B", "B"},
+				{Cpu: 2, Memory: 3}: {"A"},
+			},
+			[]string{},
+		)
+	})
 }

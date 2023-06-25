@@ -31,3 +31,7 @@ type EdgePodMapping struct {
 	Mapping         map[int]*Node
 	DeFragmentation float64
 }
+
+type CloudSuggestion struct {
+	Migrations []*Pod
+}

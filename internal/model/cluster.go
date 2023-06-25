@@ -195,8 +195,8 @@ func (c *ClusterState) RemovePodCloud(pod *Pod) bool {
 	}
 
 	pod.Node = nil
-	c.Cloud.Pods[cpod_ind] = c.Edge.Pods[len(c.Edge.Pods)-1]
-	c.Cloud.Pods = c.Edge.Pods[:len(c.Edge.Pods)-1]
+	c.Cloud.Pods[cpod_ind] = c.Cloud.Pods[len(c.Cloud.Pods)-1]
+	c.Cloud.Pods = c.Cloud.Pods[:len(c.Cloud.Pods)-1]
 
 	return true
 }

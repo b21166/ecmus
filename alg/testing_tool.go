@@ -22,6 +22,8 @@ func applyDecision(clusterState *model.ClusterState, decision model.DecisionForN
 		if ok := clusterState.RemovePod(migration.Pod); !ok {
 			panic(fmt.Sprintf("pod %d was not on edge, but tried to be removed", migration.Pod.Id))
 		}
+	}
+	for _, migration := range decision.Migrations {
 		if err := clusterState.DeployEdge(migration.Pod, migration.Node); err != nil {
 			panic(err)
 		}
@@ -42,4 +44,14 @@ func applyDecision(clusterState *model.ClusterState, decision model.DecisionForN
 			clusterState.DeployCloud(pod)
 		}
 	}
+}
+
+func applySuggestion(clusterState *model.ClusterState, suggestion model.CloudSuggestion) {
+	for _, pod := range suggestion.Migrations {
+		if !clusterState.RemovePod(pod) {
+			panic(fmt.Sprintf("could not remove pod %d", pod.Id))
+		}
+	}
+	decision := MakeDecisionForNewPods(clusterState, suggestion.Migrations)
+	applyDecision(clusterState, decision)
 }
