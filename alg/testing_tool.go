@@ -30,12 +30,7 @@ func applyDecision(clusterState *model.ClusterState, decision model.DecisionForN
 		clusterState.DeployCloud(pod)
 	}
 
-	_, edgeMapping := FitInEdge(
-		decision.ToEdgePods,
-		clusterState.Edge.Config,
-		clusterState.GetNodesResourcesRemained(),
-		clusterState.Edge.Config.GetMaximumResources(),
-	)
+	edgeMapping := MapPodToEdge(clusterState, decision.ToEdgePods, nil, nil).Mapping
 
 	for _, pod := range decision.ToEdgePods {
 		if node, ok := edgeMapping[pod.Id]; ok {

@@ -26,3 +26,8 @@ type Candidate struct {
 	NewResourceNeeded mat.Vector
 	Solution          FreeEdgeSolution
 }
+
+type EdgePodMapping struct {
+	Mapping         map[int]*Node
+	DeFragmentation float64
+}

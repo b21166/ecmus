@@ -69,7 +69,7 @@ func GetMaximumScore(c *model.ClusterState, neededResources *mat.VecDense) (mode
 
 func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, choices *[][]*model.Pod) {
 	if cnt == 0 {
-		var newChoice []*model.Pod
+		newChoice := make([]*model.Pod, len(cur))
 		copy(newChoice, cur)
 		*choices = append(*choices, newChoice)
 
@@ -105,7 +105,6 @@ func FitInEdge(
 	pods []*model.Pod,
 	edgeConfig *model.EdgeConfig,
 	nodeResourcesRemained map[int]*mat.VecDense,
-	maxResources *mat.VecDense,
 ) (float64, map[int]*model.Node) {
 	n := len(edgeConfig.Nodes)
 	m := len(pods)
@@ -129,8 +128,10 @@ func FitInEdge(
 			for k := j; k >= 0; k-- {
 				if utils.LEThan(resources, nodeResourcesRemained[node.Id]) {
 					currentDeFragmentation := utils.CalcDeFragmentation(
-						utils.SubVec(nodeResourcesRemained[node.Id], resources),
-						maxResources,
+						utils.SubVec(node.Resources,
+							utils.SubVec(nodeResourcesRemained[node.Id], resources),
+						),
+						node.Resources,
 					)
 
 					current := dp[i-1][k] + currentDeFragmentation
@@ -181,7 +182,6 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 		migrations      []*model.Migration
 	}
 
-	maxResources := c.Edge.Config.GetMaximumResources()
 	nodeResourcesRemained := c.GetNodesResourcesRemained()
 
 	for _, pod := range freedPods {
@@ -195,7 +195,7 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 	var currentDeFragmentation float64
 
 	for _, node := range c.Edge.Config.Nodes {
-		currentDeFragmentation += utils.CalcDeFragmentation(nodeResourcesRemained[node.Id], maxResources)
+		currentDeFragmentation += utils.CalcDeFragmentation(nodeResourcesRemained[node.Id], node.Resources)
 	}
 
 	bestMigrations := migrations{
@@ -208,7 +208,7 @@ func CalcMigrations(c *model.ClusterState, freedPods []*model.Pod) []*model.Migr
 			utils.SAddVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
 		}
 
-		deFragmentation, mapping := FitInEdge(migratedPods, c.Edge.Config, nodeResourcesRemained, maxResources)
+		deFragmentation, mapping := FitInEdge(migratedPods, c.Edge.Config, nodeResourcesRemained)
 
 		for _, pod := range migratedPods {
 			utils.SSubVec(nodeResourcesRemained[pod.Node.Id], pod.Deployment.ResourcesRequired)
@@ -303,4 +303,60 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.P
 	}
 
 	return freedPods
+}
+
+func MapPodToEdge(
+	clusterState *model.ClusterState,
+	pods []*model.Pod,
+	freedPods []*model.Pod,
+	migrations []*model.Migration,
+) model.EdgePodMapping {
+	nodeResourcesRemained := clusterState.GetNodesResourcesRemained()
+
+	addRes := func(res *mat.VecDense, node *model.Node) {
+		if node == nil {
+			return
+		}
+		if _, ok := nodeResourcesRemained[node.Id]; !ok {
+			return
+		}
+
+		utils.SAddVec(nodeResourcesRemained[node.Id], res)
+	}
+	subRes := func(res *mat.VecDense, node *model.Node) {
+		if node == nil {
+			return
+		}
+		if _, ok := nodeResourcesRemained[node.Id]; !ok {
+			return
+		}
+
+		utils.SSubVec(nodeResourcesRemained[node.Id], res)
+	}
+
+	for _, pod := range freedPods {
+		addRes(pod.Deployment.ResourcesRequired, pod.Node)
+	}
+
+	for _, migration := range migrations {
+		addRes(migration.Pod.Deployment.ResourcesRequired, migration.Pod.Node)
+		subRes(migration.Pod.Deployment.ResourcesRequired, migration.Node)
+	}
+
+	ret := model.EdgePodMapping{
+		Mapping:         make(map[int]*model.Node),
+		DeFragmentation: math.Inf(-1),
+	}
+
+	for orderedPods := range utils.Permutations(pods) {
+		deFragmentation, mapping := FitInEdge(orderedPods, clusterState.Edge.Config, nodeResourcesRemained)
+		if len(ret.Mapping) < len(mapping) || (len(ret.Mapping) == len(mapping) && ret.DeFragmentation < deFragmentation) {
+			ret = model.EdgePodMapping{
+				Mapping:         mapping,
+				DeFragmentation: deFragmentation,
+			}
+		}
+	}
+
+	return ret
 }

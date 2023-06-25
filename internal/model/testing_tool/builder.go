@@ -25,16 +25,16 @@ type DeploymentDesc struct {
 }
 
 type Builder struct {
-	deployments    map[string]*model.Deployment
-	deploymentName map[int]string
+	Deployments    map[string]*model.Deployment
+	DeploymentName map[int]string
 	lastPodId      int
 	lastNodeId     int
 }
 
 func New() *Builder {
 	return &Builder{
-		deployments:    make(map[string]*model.Deployment),
-		deploymentName: make(map[int]string),
+		Deployments:    make(map[string]*model.Deployment),
+		DeploymentName: make(map[int]string),
 	}
 }
 
@@ -45,15 +45,15 @@ func (builder *Builder) ImportDeployments(deploymentsDesc []*DeploymentDesc) {
 			ResourcesRequired: mat.NewVecDense(2, []float64{deploymentDesc.Cpu, deploymentDesc.Memory}),
 			EdgeShare:         deploymentDesc.EdgeShare,
 		}
-		builder.deployments[deploymentDesc.Name] = deployment
-		builder.deploymentName[deployment.Id] = deploymentDesc.Name
+		builder.Deployments[deploymentDesc.Name] = deployment
+		builder.DeploymentName[deployment.Id] = deploymentDesc.Name
 	}
 }
 
 func (builder *Builder) GetPods(podsDesc []string) []*model.Pod {
 	pods := make([]*model.Pod, 0)
 	for _, podDesc := range podsDesc {
-		deployment, ok := builder.deployments[podDesc]
+		deployment, ok := builder.Deployments[podDesc]
 		if !ok {
 			panic(fmt.Sprintf("there is no deployment named %s", podDesc))
 		}
@@ -73,7 +73,7 @@ func (builder *Builder) GetPods(podsDesc []string) []*model.Pod {
 func (builder *Builder) GetCluster(edge map[*NodeDesc][]string, cloudPodsDesc []string) *model.ClusterState {
 	clusterState := model.NewClusterState()
 
-	for _, deployment := range builder.deployments {
+	for _, deployment := range builder.Deployments {
 		clusterState.Edge.Config.AddDeployment(deployment)
 	}
 
@@ -112,14 +112,14 @@ func (builder *Builder) Expect(got *model.ClusterState, wantEdge map[*NodeDesc][
 	wantDeploymentOccurrences := make(map[string][]*NodeDesc)
 
 	for _, pod := range got.Edge.Pods {
-		key := builder.deploymentName[pod.Deployment.Id]
+		key := builder.DeploymentName[pod.Deployment.Id]
 		gotDeploymentOccurrences[key] = append(gotDeploymentOccurrences[key], &NodeDesc{
 			Cpu:    pod.Node.Resources.AtVec(0),
 			Memory: pod.Node.Resources.AtVec(1),
 		})
 	}
 	for _, pod := range got.Cloud.Pods {
-		key := builder.deploymentName[pod.Deployment.Id]
+		key := builder.DeploymentName[pod.Deployment.Id]
 		gotDeploymentOccurrences[key] = append(gotDeploymentOccurrences[key], &NodeDesc{
 			Cpu:    0,
 			Memory: 0,

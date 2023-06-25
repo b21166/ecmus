@@ -2,6 +2,7 @@ package alg
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/amsen20/ecmus/internal/model"
 )
@@ -27,12 +28,20 @@ type QoSResult struct {
 	DeploymentsQoS map[int]*QoSDeploymentInfo
 }
 
+const (
+	SATISFACTION_SCORE = 0.9
+	PRE_SATISFACTION   = 0.5
+)
+
 func QoS(currentShare, promisedShare float64) float64 {
+	if math.Abs(currentShare-promisedShare) < 1e-9 {
+		return SATISFACTION_SCORE
+	}
 	if currentShare >= promisedShare {
-		return 1
+		return SATISFACTION_SCORE + (currentShare-promisedShare)*0.1/(1-promisedShare)
 	}
 
-	return 0.5 / promisedShare * currentShare
+	return PRE_SATISFACTION / promisedShare * currentShare
 }
 
 // If a pod is in both pre-known and new pods, the new state

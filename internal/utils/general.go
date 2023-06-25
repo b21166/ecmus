@@ -41,6 +41,10 @@ func Permutations[T any](arr []T) <-chan []T {
 			}
 		}
 	}
-	go helper(arr, len(arr))
+	go func() {
+		helper(arr, len(arr))
+		close(res)
+	}()
+
 	return res
 }
