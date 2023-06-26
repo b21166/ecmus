@@ -30,7 +30,7 @@ type QoSResult struct {
 
 const (
 	SATISFACTION_SCORE = 0.9
-	PRE_SATISFACTION   = 0.5
+	PRE_SATISFACTION   = 0.4
 )
 
 func QoS(currentShare, promisedShare float64) float64 {

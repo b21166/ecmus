@@ -2,5 +2,6 @@ name: momtaz
 namespace: momtaz
 resource_count: 2
 maximum_migrations: 3
+maximum_cloud_offload: 5
 connector: kubernetes
 daemon_period_duration: 100

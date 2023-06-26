@@ -9,7 +9,7 @@ import (
 	"github.com/amsen20/ecmus/internal/model"
 )
 
-func applyDecision(clusterState *model.ClusterState, decision model.DecisionForNewPods) {
+func TestingApplyDecision(clusterState *model.ClusterState, decision model.DecisionForNewPods) {
 	for _, pod := range decision.EdgeToCloudOffloadingPods {
 		if ok := clusterState.RemovePod(pod); !ok {
 			panic(fmt.Sprintf("pod %d was not on edge, but tried to be removed", pod.Id))
@@ -46,12 +46,12 @@ func applyDecision(clusterState *model.ClusterState, decision model.DecisionForN
 	}
 }
 
-func applySuggestion(clusterState *model.ClusterState, suggestion model.CloudSuggestion) {
+func TestingApplySuggestion(clusterState *model.ClusterState, suggestion model.CloudSuggestion) {
 	for _, pod := range suggestion.Migrations {
 		if !clusterState.RemovePod(pod) {
 			panic(fmt.Sprintf("could not remove pod %d", pod.Id))
 		}
 	}
 	decision := MakeDecisionForNewPods(clusterState, suggestion.Migrations)
-	applyDecision(clusterState, decision)
+	TestingApplyDecision(clusterState, decision)
 }

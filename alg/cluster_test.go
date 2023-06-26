@@ -1,7 +1,6 @@
 package alg
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -43,7 +42,7 @@ func TestMakeDecisionForNewPods(t *testing.T) {
 		)
 
 		decision := MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"A", "B"}))
-		applyDecision(clusterState, decision)
+		TestingApplyDecision(clusterState, decision)
 
 		builder.Expect(
 			clusterState, map[*testing_tool.NodeDesc][]string{
@@ -75,7 +74,7 @@ func TestComprehensiveScenario(t *testing.T) {
 	)
 
 	decision := MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"A", "A", "B", "B"}))
-	applyDecision(clusterState, decision)
+	TestingApplyDecision(clusterState, decision)
 
 	t.Run("Init stage", func(t *testing.T) {
 		builder.Expect(
@@ -89,7 +88,7 @@ func TestComprehensiveScenario(t *testing.T) {
 	})
 
 	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"C", "C", "B"}))
-	applyDecision(clusterState, decision)
+	TestingApplyDecision(clusterState, decision)
 
 	t.Run("New pods", func(t *testing.T) {
 		builder.Expect(
@@ -118,12 +117,10 @@ func TestComprehensiveScenario(t *testing.T) {
 	}
 
 	deletePod("B")
-	fmt.Println(clusterState.Display())
 	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"D"}))
-	applyDecision(clusterState, decision)
+	TestingApplyDecision(clusterState, decision)
 
 	t.Run("Pod deletion", func(t *testing.T) {
-		fmt.Println(clusterState.Display())
 		builder.Expect(
 			clusterState, map[*testing_tool.NodeDesc][]string{
 				{Cpu: 2, Memory: 4}: {"D"},
@@ -135,16 +132,15 @@ func TestComprehensiveScenario(t *testing.T) {
 	})
 
 	deletePod("D")
-	applySuggestion(clusterState, SuggestCloudToEdge(clusterState))
-	applySuggestion(clusterState, SuggestCloudToEdge(clusterState))
+	TestingApplySuggestion(clusterState, SuggestCloudToEdge(clusterState))
+	TestingApplySuggestion(clusterState, SuggestCloudToEdge(clusterState))
 
 	t.Run("Cloud to edge", func(t *testing.T) {
-		fmt.Println(clusterState.Display())
 		builder.Expect(
 			clusterState, map[*testing_tool.NodeDesc][]string{
-				{Cpu: 2, Memory: 4}: {"A", "C", "C"},
-				{Cpu: 2, Memory: 2}: {"B", "B"},
-				{Cpu: 2, Memory: 3}: {"A"},
+				{Cpu: 2, Memory: 4}: {"A", "B"},
+				{Cpu: 2, Memory: 2}: {"A"},
+				{Cpu: 2, Memory: 3}: {"C", "C", "B"},
 			},
 			[]string{},
 		)

@@ -79,6 +79,7 @@ func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, cho
 	for it := start; it < len(pods)-cnt+1; it++ {
 		cur = append(cur, pods[it])
 		ChooseFromPods(pods, cnt-1, it+1, cur, choices)
+		cur = cur[:len(cur)-1]
 	}
 }
 

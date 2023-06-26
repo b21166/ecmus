@@ -3,6 +3,7 @@ package alg
 import (
 	"sort"
 
+	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
 )
@@ -38,7 +39,7 @@ func SuggestCloudToEdge(clusterState *model.ClusterState) model.CloudSuggestion 
 
 	ret := model.CloudSuggestion{}
 
-	for i := 0; i < len(candidPods); i++ {
+	for i := 0; i < len(candidPods) && len(ret.Migrations) < config.SchedulerGeneralConfig.MaximumCloudOffload; i++ {
 		sort.Sort(&ReverseSorter[model.Pod]{
 			objects: candidPods[i:],
 			by:      scoreOfMigratingPod,

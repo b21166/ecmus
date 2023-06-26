@@ -5,6 +5,7 @@ type GeneralConfig struct {
 	Namespace            string `yaml:"namespace"`
 	ResourceCount        int    `yaml:"resource_count"`
 	MaximumMigrations    int    `yaml:"maximum_migrations"`
+	MaximumCloudOffload  int    `yaml:"maximum_cloud_offload"`
 	ConnectorKind        string `yaml:"connector"`
 	DaemonPeriodDuration int    `yaml:"daemon_period_duration"` // ms
 }

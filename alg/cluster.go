@@ -1,7 +1,6 @@
 package alg
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/amsen20/ecmus/internal/model"
@@ -75,7 +74,6 @@ func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.D
 
 		// currentDecision.Score += FRAGMENTATION_DECISION_COEFFICIENT * deFragmentation
 
-		fmt.Printf("%d ==== %f\n", len(currentDecision.ToEdgePods), currentDecision.Score)
 		if currentDecision.Score > bestDecision.Score {
 			bestDecision = currentDecision
 		}
