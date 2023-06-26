@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"time"
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/connector"
+	"github.com/amsen20/ecmus/internal/gui"
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/scheduler"
 	"github.com/amsen20/ecmus/logging"
@@ -38,8 +38,8 @@ func main() {
 	clusterState := model.NewClusterState()
 
 	switch config.SchedulerGeneralConfig.ConnectorKind {
-	case "fake":
-		// TODO
+	case "const":
+		c = connector.NewConstantConnector(clusterState)
 	case "kubernetes":
 		c, err = connector.NewKubeConnector("/home/amirhossein/.kube/config", clusterState)
 		if err != nil {
@@ -70,21 +70,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO setup http server for this:
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		for range ticker.C {
-			schedulerBridge.ClusterStateRequestStream <- struct{}{}
-		}
-	}()
-
-be_alive:
-	for {
-		select {
-		case clusterState := <-schedulerBridge.ClusterStateStream:
-			fmt.Print(clusterState.Display())
-		case <-schedulerContext.Done():
-			break be_alive
-		}
-	}
+	gui.SetUp(schedulerBridge)
+	gui.Run()
 }
