@@ -64,11 +64,13 @@ func (kc *KubeConnector) FindNodes() error {
 	}
 
 	for _, node := range nodeList.Items {
+		nodeName := node.GetObjectMeta().GetName()
+
 		modelNode := &model.Node{
-			Id: utils.Hash(node.GetObjectMeta().GetName()),
+			Id: utils.Hash(nodeName),
 			Resources: mat.NewVecDense(2, []float64{
-				node.Status.Allocatable.Cpu().AsApproximateFloat64(),
-				node.Status.Allocatable.Memory().AsApproximateFloat64() / config.MB,
+				node.Status.Allocatable.Cpu().AsApproximateFloat64() - 1,
+				node.Status.Allocatable.Memory().AsApproximateFloat64()/config.MB - 1000,
 			}),
 		}
 
@@ -79,13 +81,32 @@ func (kc *KubeConnector) FindNodes() error {
 
 		log.Info().Msgf("found node %s", node.GetObjectMeta().GetName())
 		kc.clusterState.AddNode(modelNode, clusterType)
+		kc.nodeIdToName[modelNode.Id] = nodeName
 	}
 
+	log.Info().Msg("nodes found")
+
+	return nil
+}
+
+func (kc *KubeConnector) SyncPods() error {
+	ctx := context.Background()
 	podList, err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Err(err).Send()
 
 		return fmt.Errorf("could not get pods list")
+	}
+
+	allPods := make([]*model.Pod, len(kc.clusterState.PodsMap))
+	for _, pod := range kc.clusterState.PodsMap {
+		allPods = append(allPods, pod)
+	}
+
+	for _, pod := range allPods {
+		if pod != nil {
+			kc.clusterState.RemovePod(pod)
+		}
 	}
 
 	// remove existing pods from node resources
@@ -95,32 +116,41 @@ func (kc *KubeConnector) FindNodes() error {
 			continue
 		}
 
+		deploymentName, ok := pod.ObjectMeta.Labels["app"]
+		if !ok {
+			continue
+		}
+
+		id := utils.Hash(pod.Name)
 		nodeId := utils.Hash(pod.Spec.NodeName)
+		deploymentId := utils.Hash(deploymentName)
 
 		for _, node := range kc.clusterState.Edge.Config.Nodes {
 			if node.Id != nodeId {
 				continue
 			}
-			for _, container := range pod.Spec.Containers {
-				vec := mat.NewVecDense(2, []float64{
-					container.Resources.Limits.Cpu().AsApproximateFloat64(),
-					container.Resources.Limits.Memory().AsApproximateFloat64() / config.MB,
-				})
-
-				log.Info().Msgf(
-					"found a container on node %d, with resources: (%f, %f)\nremoving it from nodes resources",
-					node.Id,
-					vec.AtVec(0),
-					vec.AtVec(1),
-				)
-
-				utils.SSubVec(node.Resources, vec)
-				utils.SSubVec(kc.clusterState.Edge.Config.Resources, vec)
-			}
+			kc.clusterState.DeployEdge(&model.Pod{
+				Id:         id,
+				Deployment: kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId],
+				Node:       nil,
+				Status:     model.RUNNING,
+			}, node)
 		}
-	}
 
-	log.Info().Msg("nodes found")
+		for _, node := range kc.clusterState.Cloud.Nodes {
+			if node.Id != nodeId {
+				continue
+			}
+			kc.clusterState.DeployCloud(&model.Pod{
+				Id:         id,
+				Deployment: kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId],
+				Node:       nil,
+				Status:     model.RUNNING,
+			})
+		}
+
+		kc.podIdToName[id] = pod.Name
+	}
 
 	return nil
 }
@@ -137,8 +167,6 @@ func (kc *KubeConnector) FindDeployments() error {
 	}
 
 	for _, deployment := range deploymentList.Items {
-		// TODO score rule
-
 		resourceList := deployment.Spec.Template.Spec.Containers[0].Resources.Limits
 
 		deploymentName := deployment.GetObjectMeta().GetLabels()["app"]
@@ -148,7 +176,10 @@ func (kc *KubeConnector) FindDeployments() error {
 				resourceList.Cpu().AsApproximateFloat64(),
 				resourceList.Memory().AsApproximateFloat64() / config.MB,
 			}),
-			EdgeShare: 1, // TODO parse it
+			EdgeShare: 0.5, // TODO parse it
+		}
+		if deploymentName == "c" {
+			modelDeployment.EdgeShare = 1
 		}
 
 		log.Info().Msgf("found deployment %s", deploymentName)
@@ -157,6 +188,8 @@ func (kc *KubeConnector) FindDeployments() error {
 	}
 
 	log.Info().Msg("deployments found")
+
+	kc.SyncPods()
 
 	return nil
 }
@@ -170,6 +203,7 @@ func (kc *KubeConnector) DeletePod(pod *model.Pod) (bool, error) {
 	if !ok {
 		return false, nil
 	}
+	delete(kc.podIdToName, pod.Id)
 
 	err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).Delete(
 		context.Background(), podName, *metav1.NewDeleteOptions(0),
@@ -203,7 +237,7 @@ func (kc *KubeConnector) Deploy(pod *model.Pod, node *model.Node) error {
 	}
 
 	target := v1.ObjectReference{
-		Kind:       "node",
+		Kind:       "Node",
 		APIVersion: "v1",
 		Name:       nodeName,
 	}
@@ -268,13 +302,15 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 			}
 
 			id := utils.Hash(v1Pod.Name)
-			pod, ok := kc.clusterState.PodsMap[id]
-			if !ok {
+			pod, isOldPod := kc.clusterState.PodsMap[id]
+			if !isOldPod {
 				log.Info().Msgf("got an event about not registered pod, creating it.")
+				kc.podIdToName[id] = v1Pod.Name
 				pod = &model.Pod{
 					Id:         id,
 					Deployment: deployment,
 				}
+				kc.clusterState.PodsMap[pod.Id] = pod
 			}
 
 			nodeName := v1Pod.Spec.NodeName
@@ -311,6 +347,10 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 				eventType = POD_CHANGED
 			case watch.Deleted:
 				eventType = POD_DELETED
+			}
+
+			if eventType == POD_CREATED && isOldPod {
+				continue
 			}
 
 			eventStream <- &Event{
