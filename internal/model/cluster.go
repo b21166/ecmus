@@ -69,7 +69,6 @@ func NewClusterState() *ClusterState {
 }
 
 func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
-	// log.Info().Msgf("adding deployment %v", deployment)
 
 	if _, ok := ec.DeploymentIdToDeployment[deployment.Id]; ok {
 		return false

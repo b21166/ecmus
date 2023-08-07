@@ -79,5 +79,11 @@ func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.D
 		}
 	}
 
+	if len(bestDecision.EdgeToCloudOffloadingPods) == 0 &&
+		len(bestDecision.ToCloudPods) == 0 &&
+		len(bestDecision.ToEdgePods) == 0 {
+		bestDecision.Migrations = nil
+	}
+
 	return bestDecision
 }
