@@ -15,18 +15,22 @@ with open(sys.argv[2], "r") as f:
 
 fig, ax = plt.subplots()
 
-ax.set_xticklabels([])
+# ax.set_xticklabels([])
 
-plt.xlabel("Cycle")
-plt.ylabel("QoS")
+plt.xlabel("cycle")
+plt.ylabel("edge resource usage")
 
-ax.set_yticks([i/10 for i in range(0, 11)])
+ax.set_yticks([i/10 for i in range(0, 10)])
+ax.set_xticks([i for i in range(0, 101, 10)])
+
+box = ax.get_position()
+ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
 
 ax.plot(x, y1, linewidth=2.0, label="QASRE")
 ax.plot(x, y2, linewidth=2.0, label="k8s")
-plt.legend(loc='upper center')
+ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
-ax.set(xlim=(0, 100), xticks=np.arange(0, 100),
-       ylim=(0, 7), yticks=np.arange(0, 2))
+ax.set(xlim=(0, 99),
+       ylim=(0, 1))
 
 plt.show()
