@@ -62,6 +62,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	fmt.Println(clusterState.Display())
+
 	schedulerContext := context.Background()
 
 	schedulerBridge, err := sched.Run(schedulerContext)
