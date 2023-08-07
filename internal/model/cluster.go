@@ -69,7 +69,7 @@ func NewClusterState() *ClusterState {
 }
 
 func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
-	log.Info().Msgf("adding deployment %v", deployment)
+	// log.Info().Msgf("adding deployment %v", deployment)
 
 	if _, ok := ec.DeploymentIdToDeployment[deployment.Id]; ok {
 		return false
@@ -94,26 +94,39 @@ func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
 
 func (c *ClusterState) Clone() *ClusterState {
 	ret := NewClusterState()
+	for _, deployment := range c.Edge.Config.Deployments {
+		ret.Edge.Config.AddDeployment(deployment)
+	}
 
-	// Unsafe for using and mutating
-	ret.Edge.Config = c.Edge.Config
-	ret.Cloud.Nodes = c.Cloud.Nodes
+	for _, node := range c.Edge.Config.Nodes {
+		ret.AddNode(node, "edge")
+	}
+	for _, node := range c.Cloud.Nodes {
+		ret.AddNode(node, "cloud")
+	}
 
-	// Safe for using and mutating
-	copy(ret.Edge.Pods, c.Edge.Pods)
-	copy(ret.Cloud.Pods, c.Cloud.Pods)
-
-	for nodeId, res := range c.NodeResourcesUsed {
-		var newRes *mat.VecDense
-		newRes.CloneFromVec(res)
-		ret.NodeResourcesUsed[nodeId] = newRes
+	for _, pod := range c.Edge.Pods {
+		ret.DeployEdge(&Pod{
+			Id:         pod.Id,
+			Deployment: pod.Deployment,
+			Node:       pod.Node,
+			Status:     pod.Status,
+		}, pod.Node)
+	}
+	for _, pod := range c.Cloud.Pods {
+		ret.DeployCloud(&Pod{
+			Id:         pod.Id,
+			Deployment: pod.Deployment,
+			Node:       pod.Node,
+			Status:     pod.Status,
+		})
 	}
 
 	return ret
 }
 
 func (c *ClusterState) AddNode(n *Node, where string) {
-	log.Info().Msgf("adding node %v", n)
+	// log.Info().Msgf("adding node %v", n)
 
 	if where == "cloud" {
 		c.Cloud.Nodes = append(c.Cloud.Nodes, n)
@@ -252,7 +265,19 @@ func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 func (c *ClusterState) Display() string {
 	repr := ""
 
-	repr += "SHOWING CLUSTER STATE:\n\n\n"
+	repr += "DEPLOYMENTS:\n"
+	for _, deployment := range c.Edge.Config.Deployments {
+		deploymentDesc := fmt.Sprintf(
+			"{deployment %d (%f, %f)} share %f",
+			deployment.Id,
+			deployment.ResourcesRequired.AtVec(0),
+			deployment.ResourcesRequired.AtVec(1),
+			deployment.EdgeShare,
+		)
+		repr += deploymentDesc
+		repr += "\n"
+	}
+	repr += "\nSHOWING CLUSTER STATE:\n\n\n"
 	repr += "========{\n"
 	repr += "EDGE NODES:\n"
 	for _, node := range c.Edge.Config.Nodes {
