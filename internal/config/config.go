@@ -4,10 +4,12 @@ type GeneralConfig struct {
 	Name                 string `yaml:"name"`
 	Namespace            string `yaml:"namespace"`
 	ResourceCount        int    `yaml:"resource_count"`
+	ConnectorKind        string `yaml:"connector"`
 	MaximumMigrations    int    `yaml:"maximum_migrations"`
 	MaximumCloudOffload  int    `yaml:"maximum_cloud_offload"`
-	ConnectorKind        string `yaml:"connector"`
-	DaemonPeriodDuration int    `yaml:"daemon_period_duration"` // ms
+	FlushPeriodDuration  int    `yaml:"flush_period_duration"`  // ms
+	CloudSuggestDuration int    `yaml:"cloud_suggest_duration"` // ms
+	BatchSize            int    `yaml:"batch_size"`
 }
 
 var SchedulerGeneralConfig GeneralConfig
