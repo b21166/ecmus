@@ -3,12 +3,13 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"time"
 
+	"github.com/amsen20/ecmus/alg"
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/connector"
 	"github.com/amsen20/ecmus/internal/model"
+	"github.com/amsen20/ecmus/internal/utils"
 	"github.com/amsen20/ecmus/logging"
 )
 
@@ -23,28 +24,25 @@ const (
 	POD_ALLOCATION
 )
 
-type migrationInfo struct {
-	phase  migrationPhase
-	target *model.Node
-}
-
 type Scheduler struct {
 	clusterState *model.ClusterState
 	connector    connector.Connector
 
-	migrations map[int]*migrationInfo
+	newPodBuffer []*model.Pod
+	expectations []*expectation
 }
 
 type SchedulerBridge struct {
 	ClusterStateRequestStream chan<- struct{}
 	ClusterStateStream        <-chan *model.ClusterState
+	CanSchedule               chan<- struct{}
+	CanSuggestCloud           chan<- struct{}
 }
 
 func New(clusterState *model.ClusterState, connector connector.Connector) (*Scheduler, error) {
 	return &Scheduler{
 		clusterState: clusterState,
 		connector:    connector,
-		migrations:   make(map[int]*migrationInfo),
 	}, nil
 }
 
@@ -68,77 +66,84 @@ func (scheduler *Scheduler) Start() error {
 	return nil
 }
 
+func (scheduler *Scheduler) flushExpectations(reschedule bool) {
+	log.Info().Msg("flushing expectations")
+	scheduler.expectations = nil
+	// scheduler.connector.SyncPods()
+	if reschedule {
+		scheduler.schedule()
+	}
+}
+
+func (scheduler *Scheduler) nextExpectation() {
+	if len(scheduler.expectations) > 0 {
+		scheduler.expectations = scheduler.expectations[1:]
+	}
+	if len(scheduler.expectations) == 0 {
+		scheduler.schedule()
+	}
+}
+
 func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 	log.Info().Msgf(
 		"got an event:\n%v",
 		event,
 	)
 
-	pod := event.Pod
+	pod, ok := scheduler.clusterState.PodsMap[event.Pod.Id]
+	if !ok {
+		return
+	}
+	log.Info().Msgf("%v", pod)
+
+	podCreation := event.EventType == connector.POD_CREATED
+	podStatusChange := event.EventType == connector.POD_CHANGED && pod.Node == event.Node && pod.Status != event.Status
+
+	theSame := event.EventType == connector.POD_CHANGED && pod.Status == event.Status && pod.Node == event.Node
+	theSame = theSame || event.EventType == connector.POD_CREATED && pod.Status == event.Status && pod.Node == event.Node && pod.Node != nil
+
+	if theSame {
+		log.Info().Msgf("ignoring the event because it didn't change anything")
+		return
+	}
+
+	if len(scheduler.expectations) > 0 {
+		currentExpectation := scheduler.expectations[0]
+		if currentExpectation.doMatch(event) {
+			if err := currentExpectation.onOccurred(event); err != nil {
+				log.Err(err).Msgf("couldn't execute expectation's onOccurred due to")
+				scheduler.flushExpectations(false)
+			} else {
+				scheduler.nextExpectation()
+				return
+			}
+		} else {
+
+			if !podCreation && !podStatusChange {
+				log.Warn().Msgf("got an event that does not match expectation")
+				scheduler.flushExpectations(false)
+			}
+		}
+	}
+
+	log.Info().Msgf("here with %v", event.EventType)
 
 	switch event.EventType {
 	case connector.POD_CREATED:
-		// The pod is created, it has two meanings:
-		// 1- A new replica for a deployment is set.
-		// 2- The migration is entering its second phase.
-
-		var target *model.Node
-
-		if info, ok := scheduler.migrations[pod.Deployment.Id]; ok {
-			if info.phase == POD_RECREATION {
-				log.Info().Msg("the pod was created during migration")
-
-				info.phase++
-				target = info.target
-			} else {
-				log.Warn().Msgf(
-					"A new pod from deployment %d is created in an unwanted state of migration %v",
-					pod.Deployment.Id,
-					info.phase,
-				)
-
-				// leave it to alg to choose.
-				target = nil
-			} // leave it to alg to choose.
-		} else {
-			// leave it to alg to choose.
-			target = nil
-		}
-
-		if target == nil {
-			// TODO use alg
-			targets := scheduler.clusterState.Edge.Config.Nodes
-			target = targets[rand.Intn(len(targets))]
-		}
-
-		if err := scheduler.connector.Deploy(pod, target); err != nil {
-			log.Err(err).Msgf(
-				"could not deploy pod %d in connector, the pod is going to be ignored",
-				pod.Id,
-			)
-
-			return
-		}
-
-		if err := scheduler.clusterState.DeployEdge(pod, target); err != nil {
-			log.Err(err).Msgf(
-				"could not deploy pod %d in cluster, the pod is going to be ignored",
-				pod.Id,
-			)
-
-			if ok, err := scheduler.connector.DeletePod(pod); ok && err != nil {
-				log.Warn().Msgf("tried to remove the pod from connecter, but couldn't.")
-			}
-
-			return
-		}
+		// The pod is created.
+		scheduler.newPodBuffer = append(scheduler.newPodBuffer, pod)
 
 	case connector.POD_CHANGED:
 		// Sync pod nodes
 		if pod.Node != event.Node {
+			podNodeId := -1
+			if pod.Node != nil {
+				podNodeId = pod.Node.Id
+			}
+
 			log.Error().Msgf(
 				"pod changed to a unwanted node, wanted %d, got %d",
-				pod.Node.Id,
+				podNodeId,
 				event.Node.Id,
 			)
 
@@ -159,26 +164,8 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 			} else {
 				scheduler.clusterState.DeployEdge(pod, event.Node)
 			}
-		} else {
-			log.Info().Msg("the pod is scheduled on the expected node")
 
-			if info, ok := scheduler.migrations[pod.Deployment.Id]; ok {
-				if info.phase == POD_ALLOCATION {
-					log.Info().Msg("the pod migration is done")
-
-					log.Info().Msgf(
-						"Pod %d migration is done.",
-						pod.Id,
-					)
-					delete(scheduler.migrations, pod.Id)
-				} else {
-					log.Warn().Msgf(
-						"Pod %d from deployment %d is in wrong phase of migrations",
-						pod.Id,
-						pod.Deployment.Id,
-					)
-				}
-			}
+			scheduler.flushExpectations(true)
 		}
 
 		// Sync pod states.
@@ -188,22 +175,181 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 			if pod.Status == model.FINISHED {
 				log.Info().Msgf("pod %d has been finished", pod.Id)
 
-				// Remove it from, because it don't get resources anymore.
-				if pod.Node != nil {
-					scheduler.clusterState.RemovePod(pod)
-				}
+				// // Remove it from, because it don't get resources anymore.
+				// if pod.Node != nil {
+				// 	scheduler.clusterState.RemovePod(pod)
+				// }
 			}
 		}
 
 	case connector.POD_DELETED:
-		log.Info().Msgf("pod %d has been deleted", event.Pod.Id)
-		scheduler.clusterState.RemovePod(event.Pod)
+		log.Info().Msgf("pod %d has been deleted", pod.Id)
+		scheduler.clusterState.RemovePod(pod)
+		scheduler.flushExpectations(true)
 	}
 }
 
-func (scheduler *Scheduler) calcState() {
-	// TODO use alg
-	// TODO choose a random migration
+func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
+	log.Info().Msg("scheduling plan")
+	if len(plan) == 0 {
+		log.Info().Msg("plan was empty")
+		return
+	}
+
+	log.Info().Msg("planning")
+	if err := plan[0].do(nil); err != nil {
+		log.Err(err).Send()
+		scheduler.flushExpectations(false)
+	}
+
+	for i := 0; i < len(plan)-1; i++ {
+		log.Info().Msgf("%d %d\n", i+1, len(plan))
+
+		currentPlan := plan[i]
+		nextPlan := plan[i+1]
+
+		scheduler.expectations = append(scheduler.expectations, &expectation{
+			doMatch: currentPlan.isValid,
+			onOccurred: func(event *connector.Event) error {
+				log.Info().Msg("on next after")
+				if err := currentPlan.after(event); err != nil {
+					return err
+				}
+				log.Info().Msg("on next plan")
+				if err := nextPlan.do(event); err != nil {
+					return err
+				}
+
+				return nil
+			},
+		})
+	}
+
+	lastPlan := plan[len(plan)-1]
+	scheduler.expectations = append(scheduler.expectations, &expectation{
+		doMatch: lastPlan.isValid,
+		onOccurred: func(event *connector.Event) error {
+			if err := lastPlan.after(event); err != nil {
+				return err
+			}
+
+			return nil
+		},
+	})
+}
+
+func (scheduler *Scheduler) schedule() {
+	log.Info().Msg("scheduling requested")
+	if len(scheduler.expectations) != 0 {
+		log.Info().Msgf("still expect something, checking new pods\n")
+
+		progress := true
+		for len(scheduler.expectations) > 0 && progress {
+			progress = false
+
+			currentExpectation := scheduler.expectations[0]
+			for ind, pod := range scheduler.newPodBuffer {
+				fakeEvent := &connector.Event{
+					EventType: connector.POD_CREATED,
+					Pod:       pod,
+					Node:      nil,
+					Status:    pod.Status,
+				}
+				if currentExpectation.doMatch(fakeEvent) {
+					if err := currentExpectation.onOccurred(fakeEvent); err != nil {
+						log.Err(err).Msgf("couldn't execute expectation's onOccurred due to")
+						scheduler.flushExpectations(false)
+						break
+					} else {
+						scheduler.nextExpectation()
+						progress = true
+
+						scheduler.newPodBuffer[ind] = scheduler.newPodBuffer[len(scheduler.newPodBuffer)-1]
+						scheduler.newPodBuffer = scheduler.newPodBuffer[:len(scheduler.newPodBuffer)-1]
+
+						break
+					}
+				}
+			}
+		}
+
+		return
+	}
+
+	newPodsLength := utils.Min(len(scheduler.newPodBuffer), config.SchedulerGeneralConfig.BatchSize)
+	newPods := scheduler.newPodBuffer[:newPodsLength]
+	scheduler.newPodBuffer = scheduler.newPodBuffer[newPodsLength:]
+
+	decision := alg.MakeDecisionForNewPods(scheduler.clusterState, newPods)
+
+	log.Info().Msgf("decision has been made %v", decision)
+
+	cloudNode := scheduler.clusterState.Cloud.Nodes[0]
+
+	var plan []*planElement
+
+	for _, pod := range decision.EdgeToCloudOffloadingPods {
+		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
+		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
+		plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
+	}
+
+	for _, pod := range decision.ToCloudPods {
+		plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+	}
+
+	for _, migration := range decision.Migrations {
+		pod := migration.Pod
+		node := migration.Node
+
+		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
+		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
+		plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, node))
+	}
+
+	edgeMapping := alg.MapPodToEdge(scheduler.clusterState, decision.ToEdgePods, decision.EdgeToCloudOffloadingPods, decision.Migrations).Mapping
+
+	for _, pod := range decision.ToEdgePods {
+		if node, ok := edgeMapping[pod.Id]; ok {
+			plan = append(plan, getBindPodPlanElement(scheduler, pod, node))
+		} else {
+			log.Warn().Msgf("couldn't deploy pod %d on edge, deploying on cloud", pod.Id)
+			plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+		}
+	}
+
+	scheduler.schedulePlan(plan)
+}
+
+func (scheduler *Scheduler) checkSuggestion(suggestion model.CloudSuggestion) {
+	log.Info().Msg("checking suggestion")
+	if len(scheduler.expectations) != 0 {
+		return
+	}
+
+	cloudNode := scheduler.clusterState.Cloud.Nodes[0]
+
+	newPods := make([]*model.Pod, 0)
+
+	for _, suggestionPod := range suggestion.Migrations {
+		pod, ok := scheduler.clusterState.PodsMap[suggestionPod.Id]
+		if !ok {
+			continue
+		}
+
+		if pod.Node != cloudNode {
+			continue
+		}
+
+		newPods = append(newPods, pod)
+	}
+
+	var plan []*planElement
+	for _, pod := range newPods {
+		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
+	}
+
+	scheduler.schedulePlan(plan)
 }
 
 func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
@@ -217,23 +363,43 @@ func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 	}
 	log.Info().Msg("got event watcher from connector")
 
-	ticker := time.NewTicker(time.Duration(config.SchedulerGeneralConfig.DaemonPeriodDuration) * time.Millisecond)
+	scheduleTicker := time.NewTicker(time.Duration(config.SchedulerGeneralConfig.FlushPeriodDuration) * time.Millisecond)
+	cloudSuggestionDuration := time.Duration(config.SchedulerGeneralConfig.CloudSuggestDuration) * time.Millisecond
+
 	clusterStateRequestStream := make(chan struct{})
 	clusterStateStream := make(chan *model.ClusterState, 1024)
+
+	makeCloudSuggestion := make(chan struct{})
+
+	CloudSuggestStream := make(chan model.CloudSuggestion)
+	go func() {
+		<-time.After(cloudSuggestionDuration)
+		makeCloudSuggestion <- struct{}{}
+	}()
 
 	go func() {
 	scheduler_live:
 		for {
 			select {
 			case <-ctx.Done():
-				ticker.Stop()
+				scheduleTicker.Stop()
 				break scheduler_live
 			case event := <-eventStream:
 				scheduler.handleEvent(event)
-			case <-ticker.C:
-				scheduler.calcState()
+			case <-scheduleTicker.C:
+				scheduler.schedule()
 			case <-clusterStateRequestStream:
-				clusterStateStream <- scheduler.clusterState // TODO clone
+				clusterStateStream <- scheduler.clusterState.Clone()
+			case <-makeCloudSuggestion:
+				clonedState := scheduler.clusterState.Clone()
+				go func() {
+					log.Info().Msg("making suggestion")
+					CloudSuggestStream <- alg.SuggestCloudToEdge(clonedState)
+					<-time.After(cloudSuggestionDuration)
+					makeCloudSuggestion <- struct{}{}
+				}()
+			case suggestion := <-CloudSuggestStream:
+				scheduler.checkSuggestion(suggestion)
 			}
 		}
 	}()
