@@ -74,7 +74,7 @@ func (kc *KubeConnector) FindNodes() error {
 			}),
 		}
 
-		clusterType, ok := node.GetObjectMeta().GetLabels()[config.SchedulerGeneralConfig.Name+"/cluster-type"]
+		clusterType, ok := node.GetObjectMeta().GetLabels()["nodetype"]
 		if !ok || clusterType == "ignore" {
 			continue
 		}
@@ -176,11 +176,11 @@ func (kc *KubeConnector) FindDeployments() error {
 				resourceList.Cpu().AsApproximateFloat64(),
 				resourceList.Memory().AsApproximateFloat64() / config.MB,
 			}),
-			EdgeShare: 0.5, // TODO parse it
+			EdgeShare: 1, // TODO parse it
 		}
-		if deploymentName == "c" {
-			modelDeployment.EdgeShare = 1
-		}
+		// if deploymentName == "c" {
+		// 	modelDeployment.EdgeShare = 1
+		// }
 
 		log.Info().Msgf("found deployment %s", deploymentName)
 		kc.clusterState.Edge.Config.AddDeployment(modelDeployment)

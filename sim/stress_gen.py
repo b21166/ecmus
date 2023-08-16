@@ -26,7 +26,7 @@ for api in apis:
     def get_interval(replica, cnt):
         interval = {}
 
-        period = replica * threshold
+        period = 1000 / (replica * threshold)
         length = cnt * cycle_length
         interval["api_call_period"] = period
         interval["cycle_length"] = length

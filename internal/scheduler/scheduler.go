@@ -287,24 +287,37 @@ func (scheduler *Scheduler) schedule() {
 	cloudNode := scheduler.clusterState.Cloud.Nodes[0]
 
 	var plan []*planElement
+	imgState := scheduler.clusterState.Clone()
 
 	for _, pod := range decision.EdgeToCloudOffloadingPods {
 		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
 		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
 		plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
+
+		imgState.RemovePod(pod)
+		imgState.DeployCloud(pod)
 	}
 
 	for _, pod := range decision.ToCloudPods {
 		plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+
+		imgState.DeployCloud(pod)
 	}
 
 	for _, migration := range decision.Migrations {
 		pod := migration.Pod
 		node := migration.Node
 
+		imgState.RemovePod(pod)
+
 		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
 		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
-		plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, node))
+		if err := imgState.DeployEdge(pod, node); err == nil {
+			plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, node))
+		} else {
+			imgState.DeployCloud(pod)
+			plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
+		}
 	}
 
 	edgeMapping := alg.MapPodToEdge(scheduler.clusterState, decision.ToEdgePods, decision.EdgeToCloudOffloadingPods, decision.Migrations).Mapping
