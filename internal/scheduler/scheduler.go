@@ -288,34 +288,50 @@ func (scheduler *Scheduler) schedule() {
 
 	var plan []*planElement
 	imgState := scheduler.clusterState.Clone()
+	getImgPod := func(pod *model.Pod) *model.Pod {
+		imgPod, ok := imgState.PodsMap[pod.Id]
+		if !ok {
+			return &model.Pod{
+				Id:         pod.Id,
+				Deployment: pod.Deployment,
+				Node:       pod.Node,
+				Status:     pod.Status,
+			}
+		}
+		return imgPod
+	}
 
 	for _, pod := range decision.EdgeToCloudOffloadingPods {
 		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
 		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
 		plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
 
-		imgState.RemovePod(pod)
-		imgState.DeployCloud(pod)
+		imgPod := getImgPod(pod)
+		imgState.RemovePod(imgPod)
+		imgState.DeployCloud(imgPod)
 	}
 
 	for _, pod := range decision.ToCloudPods {
 		plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
 
-		imgState.DeployCloud(pod)
+		imgPod := getImgPod(pod)
+		imgState.DeployCloud(imgPod)
 	}
 
 	for _, migration := range decision.Migrations {
 		pod := migration.Pod
 		node := migration.Node
 
-		imgState.RemovePod(pod)
+		imgPod := getImgPod(pod)
+		imgState.RemovePod(imgPod)
 
 		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
 		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
-		if err := imgState.DeployEdge(pod, node); err == nil {
+
+		if err := imgState.DeployEdge(imgPod, node); err == nil {
 			plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, node))
 		} else {
-			imgState.DeployCloud(pod)
+			imgState.DeployCloud(imgPod)
 			plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
 		}
 	}
