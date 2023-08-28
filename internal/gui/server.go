@@ -5,6 +5,7 @@ import (
 
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/scheduler"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,6 +19,13 @@ func SetUp(bridge scheduler.SchedulerBridge) {
 
 	engine = gin.Default()
 	engine.LoadHTMLFiles("./internal/gui/index.html")
+
+	// add CORS middleware
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true
+
+	engine.Use(cors.New(corsConfig))
+
 	engine.POST("/state", func(ctx *gin.Context) {
 		clusterStateRequestStream <- struct{}{}
 		ctx.JSON(http.StatusOK, gin.H{
