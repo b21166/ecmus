@@ -21,6 +21,10 @@ type planElement struct {
 func getDeletePodPlanElement(scheduler *Scheduler, pod *model.Pod) *planElement {
 	return &planElement{
 		do: func(event *connector.Event) error {
+			if scheduler.clusterState.NumberOfRunningPods[pod.Deployment.Id] <= 1 && pod.Status == model.RUNNING {
+				return fmt.Errorf("should not delete this pod because this is the only one running")
+			}
+
 			ok, err := scheduler.connector.DeletePod(pod)
 			if !ok {
 				return fmt.Errorf("there is no pod %d in k8s, so can't delete", pod.Id)

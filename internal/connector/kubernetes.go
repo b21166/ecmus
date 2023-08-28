@@ -135,6 +135,7 @@ func (kc *KubeConnector) SyncPods() error {
 				Node:       nil,
 				Status:     model.RUNNING,
 			}, node)
+			kc.clusterState.NumberOfRunningPods[deploymentId] += 1
 		}
 
 		for _, node := range kc.clusterState.Cloud.Nodes {
@@ -147,6 +148,7 @@ func (kc *KubeConnector) SyncPods() error {
 				Node:       nil,
 				Status:     model.RUNNING,
 			})
+			kc.clusterState.NumberOfRunningPods[deploymentId] += 1
 		}
 
 		kc.podIdToName[id] = pod.Name

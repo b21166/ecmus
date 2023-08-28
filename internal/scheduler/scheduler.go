@@ -170,12 +170,17 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 
 		// Sync pod states.
 		if pod.Status != event.Status {
+			if pod.Status == model.RUNNING {
+				scheduler.clusterState.NumberOfRunningPods[pod.Deployment.Id] -= 1
+			} else if event.Status == model.RUNNING {
+				scheduler.clusterState.NumberOfRunningPods[pod.Deployment.Id] += 1
+			}
 			pod.Status = event.Status
 
 			if pod.Status == model.FINISHED {
 				log.Info().Msgf("pod %d has been finished", pod.Id)
 
-				// // Remove it from, because it don't get resources anymore.
+				// Remove it from edge, because it don't get resources anymore.
 				// if pod.Node != nil {
 				// 	scheduler.clusterState.RemovePod(pod)
 				// }

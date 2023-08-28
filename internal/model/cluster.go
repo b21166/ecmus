@@ -40,8 +40,9 @@ type ClusterState struct {
 	CandidatesList      []*Candidate
 	CloudToEdgeDecision DecisionForNewPods
 
-	NodeResourcesUsed map[int]*mat.VecDense
-	PodsMap           map[int]*Pod
+	NodeResourcesUsed   map[int]*mat.VecDense
+	PodsMap             map[int]*Pod
+	NumberOfRunningPods map[int]int
 }
 
 func newEdgeConfig() *EdgeConfig {
@@ -61,10 +62,11 @@ func newEdgeState() *EdgeState {
 
 func NewClusterState() *ClusterState {
 	return &ClusterState{
-		Edge:              newEdgeState(),
-		Cloud:             &CloudState{},
-		PodsMap:           make(map[int]*Pod),
-		NodeResourcesUsed: make(map[int]*mat.VecDense),
+		Edge:                newEdgeState(),
+		Cloud:               &CloudState{},
+		PodsMap:             make(map[int]*Pod),
+		NodeResourcesUsed:   make(map[int]*mat.VecDense),
+		NumberOfRunningPods: make(map[int]int),
 	}
 }
 
