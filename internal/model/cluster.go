@@ -113,6 +113,10 @@ func (c *ClusterState) Clone() *ClusterState {
 			Node:       pod.Node,
 			Status:     pod.Status,
 		}, pod.Node)
+
+		if pod.Status == RUNNING {
+			ret.NumberOfRunningPods[pod.Deployment.Id]++
+		}
 	}
 	for _, pod := range c.Cloud.Pods {
 		ret.DeployCloud(&Pod{
@@ -121,6 +125,10 @@ func (c *ClusterState) Clone() *ClusterState {
 			Node:       pod.Node,
 			Status:     pod.Status,
 		})
+
+		if pod.Status == RUNNING {
+			ret.NumberOfRunningPods[pod.Deployment.Id]++
+		}
 	}
 
 	return ret
@@ -269,11 +277,12 @@ func (c *ClusterState) Display() string {
 	repr += "DEPLOYMENTS:\n"
 	for _, deployment := range c.Edge.Config.Deployments {
 		deploymentDesc := fmt.Sprintf(
-			"{deployment %d (%f, %f)} share %f",
+			"{deployment %d (%f, %f)} share %f, number of running pods: %d",
 			deployment.Id,
 			deployment.ResourcesRequired.AtVec(0),
 			deployment.ResourcesRequired.AtVec(1),
 			deployment.EdgeShare,
+			c.NumberOfRunningPods[deployment.Id],
 		)
 		repr += deploymentDesc
 		repr += "\n"
