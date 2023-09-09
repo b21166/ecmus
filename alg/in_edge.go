@@ -67,6 +67,28 @@ func GetMaximumScore(c *model.ClusterState, neededResources *mat.VecDense) (mode
 	// return chosenCandidate.Solution, nil
 }
 
+func isAllowedToMove(c *model.ClusterState, freedPods []*model.Pod, pods []*model.Pod) bool {
+	movingPods := make(map[int]int)
+	for _, pod := range freedPods {
+		if pod.Status == model.RUNNING {
+			movingPods[pod.Deployment.Id] += 1
+		}
+	}
+	for _, pod := range pods {
+		if pod.Status == model.RUNNING {
+			movingPods[pod.Deployment.Id] += 1
+		}
+	}
+
+	for deploymentId, numberOfMoving := range movingPods {
+		if numberOfMoving >= c.NumberOfRunningPods[deploymentId] {
+			return false
+		}
+	}
+
+	return true
+}
+
 func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, choices *[][]*model.Pod) {
 	if cnt == 0 {
 		newChoice := make([]*model.Pod, len(cur))
@@ -84,7 +106,8 @@ func ChooseFromPods(pods []*model.Pod, cnt int, start int, cur []*model.Pod, cho
 }
 
 // brute force
-func GetPossiblePodChoices(c *model.ClusterState, freedPods []*model.Pod) (podChoices [][]*model.Pod) {
+func GetPossiblePodChoices(c *model.ClusterState, freedPods []*model.Pod) [][]*model.Pod {
+	var podChoices [][]*model.Pod
 	freedPodIds := utils.SliceToMap(freedPods, func(pod *model.Pod) int { return pod.Id })
 
 	remainingPods := make([]*model.Pod, 0)
@@ -99,7 +122,14 @@ func GetPossiblePodChoices(c *model.ClusterState, freedPods []*model.Pod) (podCh
 		ChooseFromPods(remainingPods, migrationCount, 0, make([]*model.Pod, 0), &podChoices)
 	}
 
-	return
+	var finalPodChoices [][]*model.Pod
+	for _, podChoice := range podChoices {
+		if isAllowedToMove(c, freedPods, podChoice) {
+			finalPodChoices = append(finalPodChoices, podChoice)
+		}
+	}
+
+	return finalPodChoices
 }
 
 func FitInEdge(
@@ -292,15 +322,25 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.P
 	currentFreedResources := mat.NewVecDense(needToFreeResources.Len(), nil)
 	freedPods := make([]*model.Pod, 0)
 
+	movingPods := make(map[int]int)
+
 	for i := 0; i < len(edgePods) && utils.LThan(currentFreedResources, needToFreeResources); i++ {
 		sort.Sort(&ReverseSorter[model.Pod]{
 			objects: edgePods[i:],
 			by:      scoreOfFreeingPod,
 		})
 
+		if movingPods[edgePods[i].Deployment.Id]+1 >= c.NumberOfRunningPods[edgePods[i].Deployment.Id] {
+			continue
+		}
+
 		utils.SAddVec(currentFreedResources, edgePods[i].Deployment.ResourcesRequired)
 		qosResult.DeploymentsQoS[edgePods[i].Deployment.Id].NumberOfPodOnEdge -= 1
 		freedPods = append(freedPods, edgePods[i])
+
+		if edgePods[i].Status == model.RUNNING {
+			movingPods[edgePods[i].Deployment.Id] += 1
+		}
 	}
 
 	return freedPods
