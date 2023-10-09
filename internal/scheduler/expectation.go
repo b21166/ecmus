@@ -10,6 +10,7 @@ import (
 type expectation struct {
 	doMatch    func(*connector.Event) bool
 	onOccurred func(*connector.Event) error
+	id         uint32
 }
 
 type planElement struct {

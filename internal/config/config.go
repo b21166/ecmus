@@ -9,6 +9,8 @@ type GeneralConfig struct {
 	MaximumCloudOffload  int    `yaml:"maximum_cloud_offload"`
 	FlushPeriodDuration  int    `yaml:"flush_period_duration"`  // ms
 	CloudSuggestDuration int    `yaml:"cloud_suggest_duration"` // ms
+	HealthCheckDuration  int    `yaml:"health_check_duration"`  // ms
+	RecoverRetryDuration int    `yaml:"recover_retry_duration"` // ms
 	BatchSize            int    `yaml:"batch_size"`
 }
 
