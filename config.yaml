@@ -1,5 +1,5 @@
-name: momtaz
-namespace: momtaz
+name: ecmus
+namespace: ecmus
 resource_count: 2
 batch_size: 10
 maximum_migrations: 3
