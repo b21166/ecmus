@@ -89,13 +89,13 @@ func (kc *KubeConnector) FindNodes() error {
 	return nil
 }
 
-func (kc *KubeConnector) SyncPods() error {
+func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 	ctx := context.Background()
 	podList, err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Err(err).Send()
 
-		return fmt.Errorf("could not get pods list")
+		return nil, fmt.Errorf("could not get pods list")
 	}
 
 	allPods := make([]*model.Pod, len(kc.clusterState.PodsMap))
@@ -108,6 +108,8 @@ func (kc *KubeConnector) SyncPods() error {
 			kc.clusterState.RemovePod(pod)
 		}
 	}
+
+	pendingPods := make([]*model.Pod, 0)
 
 	// remove existing pods from node resources
 	for _, pod := range podList.Items {
@@ -125,13 +127,26 @@ func (kc *KubeConnector) SyncPods() error {
 		nodeId := utils.Hash(pod.Spec.NodeName)
 		deploymentId := utils.Hash(deploymentName)
 
+		deployment := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+
+		if pod.Spec.NodeName == "" {
+			pendingPods = append(pendingPods, &model.Pod{
+				Id:         id,
+				Deployment: deployment,
+				Node:       nil,
+				Status:     model.SCHEDULED,
+			})
+
+			continue
+		}
+
 		for _, node := range kc.clusterState.Edge.Config.Nodes {
 			if node.Id != nodeId {
 				continue
 			}
 			kc.clusterState.DeployEdge(&model.Pod{
 				Id:         id,
-				Deployment: kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId],
+				Deployment: deployment,
 				Node:       nil,
 				Status:     model.RUNNING,
 			}, node)
@@ -154,7 +169,7 @@ func (kc *KubeConnector) SyncPods() error {
 		kc.podIdToName[id] = pod.Name
 	}
 
-	return nil
+	return pendingPods, nil
 }
 
 func (kc *KubeConnector) FindDeployments() error {
@@ -191,7 +206,11 @@ func (kc *KubeConnector) FindDeployments() error {
 
 	log.Info().Msg("deployments found")
 
-	kc.SyncPods()
+	if _, err := kc.SyncPods(); err != nil {
+		log.Err(err).Send()
+
+		return fmt.Errorf("couldn't sync pods")
+	}
 
 	return nil
 }

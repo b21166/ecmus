@@ -58,8 +58,8 @@ func (c *ConstantConnector) FindNodes() error {
 	return nil
 }
 
-func (c *ConstantConnector) SyncPods() error {
-	return nil
+func (c *ConstantConnector) SyncPods() ([]*model.Pod, error) {
+	return nil, nil
 }
 
 func (c *ConstantConnector) FindDeployments() error {
