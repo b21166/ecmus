@@ -1,9 +1,7 @@
 package logging
 
 import (
-	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,26 +15,14 @@ var (
 
 func Get() zerolog.Logger {
 	once.Do(func() {
-		logLevel := zerolog.InfoLevel
-		if os.Getenv("DEBUG") != "" {
-			logLevel = zerolog.DebugLevel
+		logLevel := zerolog.DebugLevel
+		if os.Getenv("NO_DEBUG") != "" {
+			logLevel = zerolog.InfoLevel
 		}
 
 		console := zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: time.RFC3339,
-			FormatLevel: func(i interface{}) string {
-				return strings.ToUpper(fmt.Sprintf("|%-5s|", i))
-			},
-			FormatMessage: func(i interface{}) string {
-				return fmt.Sprintf(" %s ", i)
-			},
-			FormatFieldName: func(i interface{}) string {
-				return fmt.Sprintf("%s: ", i)
-			},
-			FormatFieldValue: func(i interface{}) string {
-				return fmt.Sprintf("%s", i)
-			},
 		}
 
 		logger = zerolog.New(console).Level(logLevel).With().Timestamp().Caller().Logger()
