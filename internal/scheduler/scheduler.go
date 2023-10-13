@@ -247,6 +247,8 @@ func (scheduler *Scheduler) schedule() {
 	log.Info().Msg("scheduling requested")
 	if len(scheduler.expectations) != 0 {
 		log.Info().Msgf("still expect something, checking new pods\n")
+		log.Info().Msgf("expectations at the moment: %v", scheduler.expectations)
+		log.Info().Msgf("expectations at the moment: %v", scheduler.newPodBuffer)
 
 		progress := true
 		for len(scheduler.expectations) > 0 && progress {
@@ -271,7 +273,6 @@ func (scheduler *Scheduler) schedule() {
 
 						scheduler.newPodBuffer[ind] = scheduler.newPodBuffer[len(scheduler.newPodBuffer)-1]
 						scheduler.newPodBuffer = scheduler.newPodBuffer[:len(scheduler.newPodBuffer)-1]
-
 						break
 					}
 				}

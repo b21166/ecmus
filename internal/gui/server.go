@@ -5,30 +5,39 @@ import (
 
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/scheduler"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
 var clusterStateRequestStream chan<- struct{}
 var clusterStateStream <-chan *model.ClusterState
-var engine *gin.Engine
+var router *gin.Engine
 
-func SetUp(bridge scheduler.SchedulerBridge) {
-	clusterStateStream = bridge.ClusterStateStream
-	clusterStateRequestStream = bridge.ClusterStateRequestStream
-
-	engine = gin.Default()
-	engine.LoadHTMLFiles("./internal/gui/index.html")
-	engine.POST("/state", func(ctx *gin.Context) {
+func registerRoutes() {
+	router.POST("/state", func(ctx *gin.Context) {
 		clusterStateRequestStream <- struct{}{}
 		ctx.JSON(http.StatusOK, gin.H{
 			"content": (<-clusterStateStream).Display(),
 		})
 	})
-	engine.GET("/", func(ctx *gin.Context) {
+
+	router.GET("/", func(ctx *gin.Context) {
 		ctx.HTML(http.StatusOK, "index.html", gin.H{})
 	})
 }
 
+func SetUp(bridge scheduler.SchedulerBridge) {
+	clusterStateStream = bridge.ClusterStateStream
+	clusterStateRequestStream = bridge.ClusterStateRequestStream
+
+	router = gin.Default()
+	router.LoadHTMLFiles("./index.html")
+
+	router.Use(cors.Default())
+
+	registerRoutes()
+}
+
 func Run() {
-	engine.Run()
+	router.Run(":8080")
 }
