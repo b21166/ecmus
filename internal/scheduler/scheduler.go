@@ -11,6 +11,7 @@ import (
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
 	"github.com/amsen20/ecmus/logging"
+	"github.com/google/uuid"
 )
 
 var log = logging.Get()
@@ -30,6 +31,8 @@ type Scheduler struct {
 
 	newPodBuffer []*model.Pod
 	expectations []*expectation
+
+	healthCheckSample *healthCheckSample
 }
 
 type SchedulerBridge struct {
@@ -69,7 +72,6 @@ func (scheduler *Scheduler) Start() error {
 func (scheduler *Scheduler) flushExpectations(reschedule bool) {
 	log.Info().Msg("flushing expectations")
 	scheduler.expectations = nil
-	// scheduler.connector.SyncPods()
 	if reschedule {
 		scheduler.schedule()
 	}
@@ -227,6 +229,7 @@ func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
 
 				return nil
 			},
+			id: uuid.New().ID(),
 		})
 	}
 
@@ -240,6 +243,7 @@ func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
 
 			return nil
 		},
+		id: uuid.New().ID(),
 	})
 }
 
@@ -387,6 +391,54 @@ func (scheduler *Scheduler) checkSuggestion(suggestion model.CloudSuggestion) {
 	scheduler.schedulePlan(plan)
 }
 
+func (scheduler *Scheduler) resetClusterView() error {
+	pendingPods, err := scheduler.connector.SyncPods()
+	if err != nil {
+		log.Err(err).Send()
+
+		return fmt.Errorf("couldn't re-sync pods")
+	}
+
+	scheduler.newPodBuffer = nil
+	scheduler.newPodBuffer = append(scheduler.newPodBuffer, pendingPods...)
+
+	return nil
+}
+
+func (scheduler *Scheduler) recoverHealth() {
+	log.Warn().Msg("resetting scheduler's view of cluster...")
+
+	recoverRetryDuration := time.Duration(config.SchedulerGeneralConfig.RecoverRetryDuration) * time.Millisecond
+
+	err := scheduler.resetClusterView()
+	if err != nil {
+		log.Err(err).Msg("couldn't reset due to the error")
+		log.Warn().Msg("waiting for couple of seconds and retrying")
+		time.Sleep(recoverRetryDuration)
+		scheduler.recoverHealth()
+	}
+
+	scheduler.healthCheckSample = nil
+	scheduler.flushExpectations(false)
+
+	log.Info().Msg("done with resetting scheduler's view of cluster")
+}
+
+func (scheduler *Scheduler) checkHealth() {
+	log.Info().Msg("checking scheduler's health...")
+
+	newSample := newHealthCheckSample(scheduler)
+	if !newSample.isTheSame(scheduler.healthCheckSample) {
+		log.Info().Msg("health check done, everything looks fine")
+		scheduler.healthCheckSample = newSample
+		return
+	}
+
+	log.Warn().Msg("the scheduler is not healthy :(")
+	scheduler.recoverHealth()
+	log.Info().Msg("the scheduler health recovered, continuing...")
+}
+
 func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 	log.Info().Msg("scheduler is running...")
 
@@ -399,6 +451,7 @@ func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 	log.Info().Msg("got event watcher from connector")
 
 	scheduleTicker := time.NewTicker(time.Duration(config.SchedulerGeneralConfig.FlushPeriodDuration) * time.Millisecond)
+	healthCheckTicker := time.NewTicker(time.Duration(config.SchedulerGeneralConfig.HealthCheckDuration) * time.Millisecond)
 	cloudSuggestionDuration := time.Duration(config.SchedulerGeneralConfig.CloudSuggestDuration) * time.Millisecond
 
 	clusterStateRequestStream := make(chan struct{})
@@ -423,6 +476,8 @@ func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 				scheduler.handleEvent(event)
 			case <-scheduleTicker.C:
 				scheduler.schedule()
+			case <-healthCheckTicker.C:
+				scheduler.checkHealth()
 			case <-clusterStateRequestStream:
 				clusterStateStream <- scheduler.clusterState.Clone()
 			case <-makeCloudSuggestion:

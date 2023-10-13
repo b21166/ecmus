@@ -11,7 +11,7 @@ type Connector interface {
 	FindDeployments() error
 	GetClusterState() *model.ClusterState
 
-	SyncPods() error
+	SyncPods() ([]*model.Pod, error)
 
 	Deploy(pod *model.Pod, node *model.Node) error
 	DeletePod(pod *model.Pod) (bool, error)
