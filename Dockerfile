@@ -9,5 +9,7 @@ WORKDIR /app
 COPY --from=build-env /src/config /app/
 COPY --from=build-env /src/ecmus /app/
 COPY --from=build-env /src/config.yaml /app/
+COPY --from=build-env /src/internal/gui/index.html /app/
+EXPOSE 8080
 ENTRYPOINT ["./ecmus", "--config_file", "config.yaml"]
 
