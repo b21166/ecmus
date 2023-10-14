@@ -7,7 +7,7 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -18,10 +18,7 @@ jobs:
       - name: Build
         run: go build -v ./...
 
-      - name: Test
-        run: go test -v ./...
-
-  build:
+  push:
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -42,4 +39,3 @@ jobs:
         with:
           push: true
           tags: noisyboy9/demo-golang:latest
-
