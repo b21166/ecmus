@@ -38,4 +38,4 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: noisyboy9/demo-golang:latest
+          tags: noisyboy9/ecmus:latest
