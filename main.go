@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/amsen20/ecmus/internal/config"
@@ -23,7 +22,7 @@ func main() {
 	flag.Parse()
 
 	fmt.Println(*config_file_path)
-	yamlFile, err := ioutil.ReadFile(*config_file_path)
+	yamlFile, err := os.ReadFile(*config_file_path)
 	if err != nil {
 		log.Err(err).Msgf("could not load config")
 		os.Exit(1)
@@ -34,14 +33,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	var c connector.Connector
+	// The cluster state will be shared between connector and scheduler.
 	clusterState := model.NewClusterState()
 
+	var c connector.Connector
+	// Initialize the connector with the connector kind mentioned in config.
 	switch config.SchedulerGeneralConfig.ConnectorKind {
 	case "const":
 		c = connector.NewConstantConnector(clusterState)
 	case "kubernetes":
-		c, err = connector.NewKubeConnector("./config", clusterState)
+		c, err = connector.NewKubeConnector(config.SchedulerGeneralConfig.ConnectorConfigPath, clusterState)
 		if err != nil {
 			log.Err(err).Msg("could not init the connector")
 			os.Exit(1)
@@ -62,16 +63,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println(clusterState.Display())
-
 	schedulerContext := context.Background()
 
+	// Scheduler's bridge is a way for other goroutines to ask
+	// the scheduler for getting snapshots of the current state.
 	schedulerBridge, err := sched.Run(schedulerContext)
 	if err != nil {
 		log.Err(err).Msg("could not run scheduler")
 		os.Exit(1)
 	}
 
+	// Simple gui in web-server for checking state's status.
 	gui.SetUp(schedulerBridge)
 	gui.Run()
 }
