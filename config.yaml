@@ -5,6 +5,7 @@ batch_size: 10
 maximum_migrations: 3
 maximum_cloud_offload: 5
 connector: kubernetes
+connector_config: /home/amirhossein/.kube/config
 flush_period_duration: 1000
 cloud_suggest_duration: 1000
 health_check_duration: 10000
