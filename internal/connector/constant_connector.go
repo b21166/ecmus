@@ -5,6 +5,9 @@ import (
 	"github.com/amsen20/ecmus/internal/model/testing_tool"
 )
 
+// This connector in implemented for
+// testing purposes and shows a
+// "constant" functionality.
 type ConstantConnector struct {
 	clusterState     *model.ClusterState
 	goalClusterState *model.ClusterState

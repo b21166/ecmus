@@ -18,9 +18,15 @@ import (
 )
 
 type KubeConnector struct {
-	clientset    *kubernetes.Clientset
+	// Kubernetes official library client for
+	// contacting API-server.
+	clientset *kubernetes.Clientset
+
+	// The shared cluster state.
 	clusterState *model.ClusterState
 
+	// Mappings for getting pod, node,
+	// and deployments names easily.
 	nodeIdToName       map[int]string
 	podIdToName        map[int]string
 	deploymentIdToName map[int]string
@@ -56,6 +62,7 @@ func (kc *KubeConnector) FindNodes() error {
 	log.Info().Msg("finding nodes...")
 
 	ctx := context.Background()
+	// the node list from kubernetes
 	nodeList, err := kc.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Err(err).Send()
@@ -69,11 +76,21 @@ func (kc *KubeConnector) FindNodes() error {
 		modelNode := &model.Node{
 			Id: utils.Hash(nodeName),
 			Resources: mat.NewVecDense(2, []float64{
+				// Removing 1 core and 1 Gig from CPU and memory
+				// of each node so background processes and not visible
+				// pods to scheduler won't cause "Out Of Resource" error
+				// during scheduler execution.
+				// TODO Scheduler should be robust to OOR errors.
+				// FIXME Scheduler can approximate nodes used resources
+				// FIXME in better ways like htop or trial and error.
 				node.Status.Allocatable.Cpu().AsApproximateFloat64() - 1,
 				node.Status.Allocatable.Memory().AsApproximateFloat64()/config.MB - 1000,
 			}),
 		}
 
+		// "nodetype" label categorize that the node is either
+		// cloud, edge or non.
+		// This label should be in object/meta.
 		clusterType, ok := node.GetObjectMeta().GetLabels()["nodetype"]
 		if !ok || clusterType == "ignore" {
 			continue
@@ -90,19 +107,13 @@ func (kc *KubeConnector) FindNodes() error {
 }
 
 func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
-	ctx := context.Background()
-	podList, err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Err(err).Send()
-
-		return nil, fmt.Errorf("could not get pods list")
-	}
-
+	// getting all pods that exists in the cluster state
 	allPods := make([]*model.Pod, len(kc.clusterState.PodsMap))
 	for _, pod := range kc.clusterState.PodsMap {
 		allPods = append(allPods, pod)
 	}
 
+	// erasing all of them from cluster state
 	for _, pod := range allPods {
 		if pod != nil {
 			kc.clusterState.RemovePod(pod)
@@ -111,25 +122,34 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 
 	pendingPods := make([]*model.Pod, 0)
 
-	// remove existing pods from node resources
+	// getting the pod list from scheduler's namespace.
+	ctx := context.Background()
+	// TODO check running other pods in other namespaces do not allocate memory
+	podList, err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Err(err).Send()
+
+		return nil, fmt.Errorf("could not get pods list")
+	}
+
+	// checking each pod and deploying it where it belongs to.
 	for _, pod := range podList.Items {
 		// TODO check running pods do not allocate memory
-		if pod.Spec.NodeName == "" || pod.Status.Phase != v1.PodRunning {
+		if pod.Spec.NodeName == "" {
 			continue
 		}
 
+		// TODO check running pods do not allocate memory
 		deploymentName, ok := pod.ObjectMeta.Labels["app"]
 		if !ok {
 			continue
 		}
 
 		id := utils.Hash(pod.Name)
-		nodeId := utils.Hash(pod.Spec.NodeName)
 		deploymentId := utils.Hash(deploymentName)
 
 		deployment := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
-
-		if pod.Spec.NodeName == "" {
+		if pod.Status.Phase == v1.PodPending {
 			pendingPods = append(pendingPods, &model.Pod{
 				Id:         id,
 				Deployment: deployment,
@@ -140,10 +160,27 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 			continue
 		}
 
+		// TODO check running pods do not allocate memory
+		if pod.Status.Phase != v1.PodRunning {
+			log.Info().Msgf("ignoring a pod named %s due to its status", pod.Name)
+			continue
+		}
+
+		nodeId := utils.Hash(pod.Spec.NodeName)
+		if pod.Spec.NodeName == "" {
+			// should not happen
+			log.Error().Msgf("found a pod named %s which is running but does not have a not", pod.Name)
+			continue
+		}
+
+		foundNode := false
+
+		// checks whether it is on edge or not
 		for _, node := range kc.clusterState.Edge.Config.Nodes {
 			if node.Id != nodeId {
 				continue
 			}
+
 			kc.clusterState.DeployEdge(&model.Pod{
 				Id:         id,
 				Deployment: deployment,
@@ -151,8 +188,14 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 				Status:     model.RUNNING,
 			}, node)
 			kc.clusterState.NumberOfRunningPods[deploymentId] += 1
+
+			if foundNode {
+				panic(fmt.Errorf("multiple nodes with the same id as %d", nodeId))
+			}
+			foundNode = true
 		}
 
+		// checks whether it is on cloud or not
 		for _, node := range kc.clusterState.Cloud.Nodes {
 			if node.Id != nodeId {
 				continue
@@ -164,6 +207,17 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 				Status:     model.RUNNING,
 			})
 			kc.clusterState.NumberOfRunningPods[deploymentId] += 1
+
+			if foundNode {
+				panic(fmt.Errorf("multiple nodes with the same id as %d", nodeId))
+			}
+			foundNode = true
+		}
+
+		if !foundNode {
+			// should not happen
+			log.Error().Msgf("found a pod named %s on node %s that the node is on neither cloud nor edge", pod.Name, pod.Spec.NodeName)
+			continue
 		}
 
 		kc.podIdToName[id] = pod.Name
@@ -176,6 +230,7 @@ func (kc *KubeConnector) FindDeployments() error {
 	log.Info().Msg("finding deployments...")
 
 	ctx := context.Background()
+	// the list of deployments in the namespace
 	deploymentList, err := kc.clientset.AppsV1().Deployments(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		log.Err(err).Send()
@@ -186,6 +241,7 @@ func (kc *KubeConnector) FindDeployments() error {
 	for _, deployment := range deploymentList.Items {
 		resourceList := deployment.Spec.Template.Spec.Containers[0].Resources.Limits
 
+		// deployment name should be stored in a label in object/meta with key "app"
 		deploymentName := deployment.GetObjectMeta().GetLabels()["app"]
 		modelDeployment := &model.Deployment{
 			Id: utils.Hash(deploymentName),
@@ -193,8 +249,9 @@ func (kc *KubeConnector) FindDeployments() error {
 				resourceList.Cpu().AsApproximateFloat64(),
 				resourceList.Memory().AsApproximateFloat64() / config.MB,
 			}),
-			EdgeShare: 1, // TODO parse it
+			EdgeShare: 1, // TODO parse it from deployment's labels
 		}
+		// manual edge share:
 		// if deploymentName == "c" {
 		// 	modelDeployment.EdgeShare = 1
 		// }
@@ -206,6 +263,7 @@ func (kc *KubeConnector) FindDeployments() error {
 
 	log.Info().Msg("deployments found")
 
+	// After finding deployments, it's time for searching for pods.
 	if _, err := kc.SyncPods(); err != nil {
 		log.Err(err).Send()
 
@@ -226,6 +284,7 @@ func (kc *KubeConnector) DeletePod(pod *model.Pod) (bool, error) {
 	}
 	delete(kc.podIdToName, pod.Id)
 
+	// k8s delete API
 	err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).Delete(
 		context.Background(), podName, *metav1.NewDeleteOptions(0),
 	)
@@ -237,6 +296,10 @@ func (kc *KubeConnector) DeletePod(pod *model.Pod) (bool, error) {
 }
 
 func (kc *KubeConnector) Deploy(pod *model.Pod, node *model.Node) error {
+	if node == nil {
+		return fmt.Errorf("cannot deploy a pod on a nil node")
+	}
+
 	log.Info().Msgf(
 		"deploying pod %d to node %d",
 		pod.Id,
@@ -273,6 +336,7 @@ func (kc *KubeConnector) Deploy(pod *model.Pod, node *model.Node) error {
 		Target:     target,
 	}
 
+	// A k8s binding is created for deploying a pod on a node.
 	err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).Bind(
 		context.Background(),
 		binding,
@@ -286,6 +350,7 @@ func (kc *KubeConnector) Deploy(pod *model.Pod, node *model.Node) error {
 }
 
 func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
+	// k8s API for watching events of a namespace:
 	watcher, err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).Watch(
 		context.Background(),
 		metav1.ListOptions{
@@ -299,11 +364,14 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 	}
 
 	eventStream := make(chan *Event)
+	// The goroutine duty is to translate all k8s events
+	// to an internal event and send it through eventStream.
 	go func() {
 		for event := range watcher.ResultChan() {
 			v1Pod, ok := event.Object.(*v1.Pod)
 			if !ok {
 				// the event is not about a pod
+				// TODO maybe check for
 				continue
 			}
 
@@ -351,6 +419,7 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 			var newPodStatus model.PodStatus
 			log.Info().Msgf("pod's kubernetes status: %s", v1Pod.Status.Phase)
 
+			// translating the pod status:
 			switch v1Pod.Status.Phase {
 			case v1.PodPending, v1.PodUnknown:
 				newPodStatus = model.SCHEDULED
@@ -360,6 +429,7 @@ func (kc *KubeConnector) WatchSchedulingEvents() (<-chan *Event, error) {
 				newPodStatus = model.FINISHED
 			}
 
+			// inferring event type:
 			var eventType EventType
 			switch event.Type {
 			case watch.Added:
