@@ -13,6 +13,7 @@ import (
 
 var log = logging.Get()
 
+// Stores static properties of the edge cluster
 type EdgeConfig struct {
 	Nodes                    []*Node
 	Deployments              []*Deployment
@@ -21,6 +22,7 @@ type EdgeConfig struct {
 	Resources *mat.VecDense
 }
 
+// Stores dynamic properties of the edge
 type EdgeState struct {
 	Config *EdgeConfig
 
@@ -28,20 +30,29 @@ type EdgeState struct {
 	UsedResources *mat.VecDense
 }
 
+// Stores dynamic and static properties of the cloud.
+// Scheduler assumption is that all cloud nodes are symmetric
+// and so schedulers the pod on them randomly.
 type CloudState struct {
 	Nodes []*Node
 	Pods  []*Pod
 }
 
+// The whole state of the cluster in
+// scheduler's point of view.
 type ClusterState struct {
 	Edge  *EdgeState
 	Cloud *CloudState
 
-	CandidatesList      []*Candidate
-	CloudToEdgeDecision DecisionForNewPods
+	// Deprecated:
+	// CandidatesList      []*Candidate
 
-	NodeResourcesUsed   map[int]*mat.VecDense
-	PodsMap             map[int]*Pod
+	// amount of resource used for all nodes
+	NodeResourcesUsed map[int]*mat.VecDense
+	// a mapping from pod id to pod
+	PodsMap map[int]*Pod
+	// number of running pods for each deployment
+	// (deployments id) -> (number of running pods of that deployment)
 	NumberOfRunningPods map[int]int
 }
 
@@ -70,6 +81,11 @@ func NewClusterState() *ClusterState {
 	}
 }
 
+// Following methods are for building scheduler assumption of
+// cluster's static properties, if this methods are called
+// in the middle of scheduler's execution it may cause unexpected
+// behavior.
+
 func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
 
 	if _, ok := ec.DeploymentIdToDeployment[deployment.Id]; ok {
@@ -82,60 +98,7 @@ func (ec *EdgeConfig) AddDeployment(deployment *Deployment) bool {
 	return true
 }
 
-func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
-	ret := mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil)
-	for _, node := range ec.Nodes {
-		for i := 0; i < node.Resources.Len(); i++ {
-			ret.SetVec(i, math.Max(ret.AtVec(i), node.Resources.AtVec(i)))
-		}
-	}
-
-	return ret
-}
-
-func (c *ClusterState) Clone() *ClusterState {
-	ret := NewClusterState()
-	for _, deployment := range c.Edge.Config.Deployments {
-		ret.Edge.Config.AddDeployment(deployment)
-	}
-
-	for _, node := range c.Edge.Config.Nodes {
-		ret.AddNode(node, "edge")
-	}
-	for _, node := range c.Cloud.Nodes {
-		ret.AddNode(node, "cloud")
-	}
-
-	for _, pod := range c.Edge.Pods {
-		ret.DeployEdge(&Pod{
-			Id:         pod.Id,
-			Deployment: pod.Deployment,
-			Node:       pod.Node,
-			Status:     pod.Status,
-		}, pod.Node)
-
-		if pod.Status == RUNNING {
-			ret.NumberOfRunningPods[pod.Deployment.Id]++
-		}
-	}
-	for _, pod := range c.Cloud.Pods {
-		ret.DeployCloud(&Pod{
-			Id:         pod.Id,
-			Deployment: pod.Deployment,
-			Node:       pod.Node,
-			Status:     pod.Status,
-		})
-
-		if pod.Status == RUNNING {
-			ret.NumberOfRunningPods[pod.Deployment.Id]++
-		}
-	}
-
-	return ret
-}
-
 func (c *ClusterState) AddNode(n *Node, where string) {
-	// log.Info().Msgf("adding node %v", n)
 
 	if where == "cloud" {
 		c.Cloud.Nodes = append(c.Cloud.Nodes, n)
@@ -151,6 +114,8 @@ func (c *ClusterState) AddNode(n *Node, where string) {
 	log.Info().Msg("added to edge")
 }
 
+// Following methods are for changing scheduler's point of view
+// of cluster's dynamic properties.
 func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 	log.Info().Msgf(
 		"deploying pod %d on node %d which is on edge",
@@ -246,6 +211,68 @@ func (c *ClusterState) RemovePodEdge(pod *Pod) bool {
 	return true
 }
 
+// Following methods are some utility methods for having
+// a quick access to some data in cluster's state.
+// or getting some common query form cluster and ...
+
+// Returns [max(r) for each r in n for each n in all nodes]
+// Used for normalization purposes
+func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
+	ret := mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil)
+	for _, node := range ec.Nodes {
+		for i := 0; i < node.Resources.Len(); i++ {
+			ret.SetVec(i, math.Max(ret.AtVec(i), node.Resources.AtVec(i)))
+		}
+	}
+
+	return ret
+}
+
+// Returns a deep copy of the cluster's state.
+// Deployment and Node objects are being shallow copied
+// but the Pods are being deep copied.
+func (c *ClusterState) Clone() *ClusterState {
+	ret := NewClusterState()
+	for _, deployment := range c.Edge.Config.Deployments {
+		ret.Edge.Config.AddDeployment(deployment)
+	}
+
+	for _, node := range c.Edge.Config.Nodes {
+		ret.AddNode(node, "edge")
+	}
+	for _, node := range c.Cloud.Nodes {
+		ret.AddNode(node, "cloud")
+	}
+
+	for _, pod := range c.Edge.Pods {
+		ret.DeployEdge(&Pod{
+			Id:         pod.Id,
+			Deployment: pod.Deployment,
+			Node:       pod.Node,
+			Status:     pod.Status,
+		}, pod.Node)
+
+		if pod.Status == RUNNING {
+			ret.NumberOfRunningPods[pod.Deployment.Id]++
+		}
+	}
+	for _, pod := range c.Cloud.Pods {
+		ret.DeployCloud(&Pod{
+			Id:         pod.Id,
+			Deployment: pod.Deployment,
+			Node:       pod.Node,
+			Status:     pod.Status,
+		})
+
+		if pod.Status == RUNNING {
+			ret.NumberOfRunningPods[pod.Deployment.Id]++
+		}
+	}
+
+	return ret
+}
+
+// Returns a mapping of [(node id) -> (node object)].
 func (c *ClusterState) GetNodeIdToNode() map[int]*Node {
 	nodeIdToNode := make(map[int]*Node)
 
@@ -259,6 +286,7 @@ func (c *ClusterState) GetNodeIdToNode() map[int]*Node {
 	return nodeIdToNode
 }
 
+// Returns a mapping of [(node id) -> (node's used resource vector)]
 func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 	NodesResourcesRemained := make(map[int]*mat.VecDense)
 	// TODO change it to all nodes
@@ -271,6 +299,8 @@ func (c *ClusterState) GetNodesResourcesRemained() map[int]*mat.VecDense {
 	return NodesResourcesRemained
 }
 
+// Returns a string, a simple description of
+// the cluster's state.
 func (c *ClusterState) Display() string {
 	repr := ""
 
