@@ -1,3 +1,9 @@
+// A very simple gin HTTP server
+// for getting scheduler point of view
+// from the cluster using a web page
+// The gui sends an empty struct to scheduler bridge
+// and the scheduler sends back a clone of state
+// to gui which displays it using a simple HTML file.
 package gui
 
 import (
