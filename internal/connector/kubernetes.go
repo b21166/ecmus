@@ -106,6 +106,42 @@ func (kc *KubeConnector) FindNodes() error {
 	return nil
 }
 
+func (kc *KubeConnector) GetPendingPods() ([]*model.Pod, error) {
+	pendingPods := make([]*model.Pod, 0)
+
+	// getting the pod list from scheduler's namespace.
+	ctx := context.Background()
+	podList, err := kc.clientset.CoreV1().Pods(config.SchedulerGeneralConfig.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		log.Err(err).Send()
+
+		return nil, fmt.Errorf("could not get pods list")
+	}
+
+	// checking all pods for pending pods
+	for _, pod := range podList.Items {
+		deploymentName, ok := pod.ObjectMeta.Labels["app"]
+		if !ok {
+			continue
+		}
+
+		id := utils.Hash(pod.Name)
+		deploymentId := utils.Hash(deploymentName)
+
+		deployment := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+		if pod.Status.Phase == v1.PodPending {
+			pendingPods = append(pendingPods, &model.Pod{
+				Id:         id,
+				Deployment: deployment,
+				Node:       nil,
+				Status:     model.SCHEDULED,
+			})
+		}
+	}
+
+	return pendingPods, nil
+}
+
 func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 	// getting all pods that exists in the cluster state
 	allPods := make([]*model.Pod, len(kc.clusterState.PodsMap))
@@ -134,12 +170,7 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 
 	// checking each pod and deploying it where it belongs to.
 	for _, pod := range podList.Items {
-		// TODO check running pods do not allocate memory
-		if pod.Spec.NodeName == "" {
-			continue
-		}
-
-		// TODO check running pods do not allocate memory
+		// TODO check other running pods do not allocate memory
 		deploymentName, ok := pod.ObjectMeta.Labels["app"]
 		if !ok {
 			continue

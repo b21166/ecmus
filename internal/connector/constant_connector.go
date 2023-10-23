@@ -61,6 +61,10 @@ func (c *ConstantConnector) FindNodes() error {
 	return nil
 }
 
+func (c *ConstantConnector) GetPendingPods() ([]*model.Pod, error) {
+	return nil, nil
+}
+
 func (c *ConstantConnector) SyncPods() ([]*model.Pod, error) {
 	return nil, nil
 }

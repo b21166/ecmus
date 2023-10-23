@@ -22,6 +22,8 @@ type Connector interface {
 	// forget everything it knows about pods and know
 	// current status of the cluster.
 	// This method also returns a list of pending pods.
+	// TODO refactor SyncPods to use get pending pods
+	GetPendingPods() ([]*model.Pod, error)
 	SyncPods() ([]*model.Pod, error)
 
 	// Main methods for scheduler to able to
