@@ -249,6 +249,12 @@ func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
 
 func (scheduler *Scheduler) schedule() {
 	log.Info().Msg("scheduling requested")
+
+	pendingPods, err := scheduler.connector.GetPendingPods()
+	if err == nil {
+		scheduler.newPodBuffer = pendingPods
+	}
+
 	if len(scheduler.expectations) != 0 {
 		log.Info().Msgf("still expect something, checking new pods\n")
 		log.Info().Msgf("expectations at the moment: %v", scheduler.expectations)
