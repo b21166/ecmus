@@ -128,7 +128,11 @@ func (kc *KubeConnector) GetPendingPods() ([]*model.Pod, error) {
 		id := utils.Hash(pod.Name)
 		deploymentId := utils.Hash(deploymentName)
 
-		deployment := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+		deployment, ok := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+		if !ok {
+			continue
+		}
+
 		if pod.Status.Phase == v1.PodPending {
 			pendingPods = append(pendingPods, &model.Pod{
 				Id:         id,
@@ -179,7 +183,11 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 		id := utils.Hash(pod.Name)
 		deploymentId := utils.Hash(deploymentName)
 
-		deployment := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+		deployment, ok := kc.clusterState.Edge.Config.DeploymentIdToDeployment[deploymentId]
+		if !ok {
+			continue
+		}
+
 		if pod.Status.Phase == v1.PodPending {
 			pendingPods = append(pendingPods, &model.Pod{
 				Id:         id,
@@ -274,6 +282,13 @@ func (kc *KubeConnector) FindDeployments() error {
 
 		// deployment name should be stored in a label in object/meta with key "app"
 		deploymentName := deployment.GetObjectMeta().GetLabels()["app"]
+		schedulerNameLen := len(config.SchedulerGeneralConfig.Name)
+		if len(deploymentName) >= schedulerNameLen && deploymentName[:schedulerNameLen] == config.SchedulerGeneralConfig.Name {
+			// ignore your pod
+			// WARN scheduler should not be a node which scheduler can scheduler a pod on!
+			continue
+		}
+
 		modelDeployment := &model.Deployment{
 			Id: utils.Hash(deploymentName),
 			ResourcesRequired: mat.NewVecDense(2, []float64{
