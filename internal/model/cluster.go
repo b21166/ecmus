@@ -54,6 +54,9 @@ type ClusterState struct {
 	// number of running pods for each deployment
 	// (deployments id) -> (number of running pods of that deployment)
 	NumberOfRunningPods map[int]int
+
+	// whether methods should log or not
+	shouldLog bool
 }
 
 func newEdgeConfig() *EdgeConfig {
@@ -78,6 +81,7 @@ func NewClusterState() *ClusterState {
 		PodsMap:             make(map[int]*Pod),
 		NodeResourcesUsed:   make(map[int]*mat.VecDense),
 		NumberOfRunningPods: make(map[int]int),
+		shouldLog:           true,
 	}
 }
 
@@ -103,7 +107,9 @@ func (c *ClusterState) AddNode(n *Node, where string) {
 	if where == "cloud" {
 		c.Cloud.Nodes = append(c.Cloud.Nodes, n)
 
-		log.Info().Msg("added to cloud")
+		if c.shouldLog {
+			log.Info().Msg("added to cloud")
+		}
 		return
 	}
 	c.Edge.Config.Nodes = append(c.Edge.Config.Nodes, n)
@@ -111,17 +117,21 @@ func (c *ClusterState) AddNode(n *Node, where string) {
 
 	c.NodeResourcesUsed[n.Id] = mat.NewVecDense(config.SchedulerGeneralConfig.ResourceCount, nil)
 
-	log.Info().Msg("added to edge")
+	if c.shouldLog {
+		log.Info().Msg("added to edge")
+	}
 }
 
 // Following methods are for changing scheduler's point of view
 // of cluster's dynamic properties.
 func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
-	log.Info().Msgf(
-		"deploying pod %d on node %d which is on edge",
-		pod.Id,
-		node.Id,
-	)
+	if c.shouldLog {
+		log.Info().Msgf(
+			"deploying pod %d on node %d which is on edge",
+			pod.Id,
+			node.Id,
+		)
+	}
 
 	if utils.LThan(utils.SubVec(node.Resources, c.NodeResourcesUsed[node.Id]), pod.Deployment.ResourcesRequired) {
 		return fmt.Errorf("not enough resources for pod %d to be deployed on %d", pod.Id, node.Id)
@@ -139,10 +149,12 @@ func (c *ClusterState) DeployEdge(pod *Pod, node *Node) error {
 }
 
 func (c *ClusterState) DeployCloud(pod *Pod) {
-	log.Info().Msgf(
-		"deploying pod %d to cloud",
-		pod.Id,
-	)
+	if c.shouldLog {
+		log.Info().Msgf(
+			"deploying pod %d to cloud",
+			pod.Id,
+		)
+	}
 
 	if len(c.Cloud.Nodes) > 0 {
 		target := c.Cloud.Nodes[rand.Intn(len(c.Cloud.Nodes))]
@@ -155,7 +167,9 @@ func (c *ClusterState) DeployCloud(pod *Pod) {
 }
 
 func (c *ClusterState) RemovePod(pod *Pod) bool {
-	log.Info().Msgf("removing pod %d", pod.Id)
+	if c.shouldLog {
+		log.Info().Msgf("removing pod %d", pod.Id)
+	}
 
 	ret := c.RemovePodEdge(pod)
 	if !ret {
@@ -233,6 +247,9 @@ func (ec *EdgeConfig) GetMaximumResources() *mat.VecDense {
 // but the Pods are being deep copied.
 func (c *ClusterState) Clone() *ClusterState {
 	ret := NewClusterState()
+	// cloned state should not populate the logs
+	ret.shouldLog = false
+
 	for _, deployment := range c.Edge.Config.Deployments {
 		ret.Edge.Config.AddDeployment(deployment)
 	}
