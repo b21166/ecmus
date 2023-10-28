@@ -434,7 +434,7 @@ func (scheduler *Scheduler) checkHealth() {
 	log.Info().Msg("checking scheduler's health...")
 
 	newSample := newHealthCheckSample(scheduler)
-	if !newSample.isTheSame(scheduler.healthCheckSample) {
+	if !newSample.isStuck(scheduler.healthCheckSample) {
 		log.Info().Msg("health check done, everything looks fine")
 		scheduler.healthCheckSample = newSample
 		return

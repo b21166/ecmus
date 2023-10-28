@@ -20,12 +20,12 @@ func newHealthCheckSample(scheduler *Scheduler) *healthCheckSample {
 	return newSample
 }
 
-func (h *healthCheckSample) isTheSame(o *healthCheckSample) bool {
+func (h *healthCheckSample) isStuck(o *healthCheckSample) bool {
 	if o == nil {
 		return false
 	}
 
-	if o.expectationsLength != h.expectationsLength {
+	if o.expectationsLength != h.expectationsLength || h.expectationsLength == 0 {
 		return false
 	}
 
