@@ -7,10 +7,18 @@ import (
 	"github.com/amsen20/ecmus/internal/model"
 )
 
+type expectationType int
+
+const (
+	PLACING expectationType = iota
+	REORDERING
+)
+
 type expectation struct {
 	doMatch    func(*connector.Event) bool
 	onOccurred func(*connector.Event) error
 	id         uint32
+	tp         expectationType
 }
 
 type planElement struct {
