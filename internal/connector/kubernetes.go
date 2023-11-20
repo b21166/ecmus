@@ -133,7 +133,7 @@ func (kc *KubeConnector) GetPendingPods() ([]*model.Pod, error) {
 			continue
 		}
 
-		if pod.Status.Phase == v1.PodPending {
+		if pod.Status.Phase == v1.PodPending && pod.Spec.NodeName == "" {
 			pendingPods = append(pendingPods, &model.Pod{
 				Id:         id,
 				Deployment: deployment,
@@ -188,7 +188,10 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 			continue
 		}
 
-		if pod.Status.Phase == v1.PodPending {
+		isRunning := (pod.Status.Phase == v1.PodPending && pod.Spec.NodeName != "")
+		isRunning = (isRunning || pod.Status.Phase == v1.PodRunning)
+
+		if pod.Status.Phase == v1.PodPending && pod.Spec.NodeName == "" {
 			pendingPods = append(pendingPods, &model.Pod{
 				Id:         id,
 				Deployment: deployment,
@@ -200,18 +203,12 @@ func (kc *KubeConnector) SyncPods() ([]*model.Pod, error) {
 		}
 
 		// TODO check running pods do not allocate memory
-		if pod.Status.Phase != v1.PodRunning {
+		if !isRunning {
 			log.Info().Msgf("ignoring a pod named %s due to its status", pod.Name)
 			continue
 		}
 
 		nodeId := utils.Hash(pod.Spec.NodeName)
-		if pod.Spec.NodeName == "" {
-			// should not happen
-			log.Error().Msgf("found a pod named %s which is running but does not have a not", pod.Name)
-			continue
-		}
-
 		foundNode := false
 
 		// checks whether it is on edge or not
