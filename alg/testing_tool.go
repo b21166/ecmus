@@ -52,6 +52,6 @@ func TestingApplySuggestion(clusterState *model.ClusterState, suggestion model.C
 			panic(fmt.Sprintf("could not remove pod %d", pod.Id))
 		}
 	}
-	decision := MakeDecisionForNewPods(clusterState, suggestion.Migrations)
+	decision := MakeDecisionForNewPods(clusterState, suggestion.Migrations, true)
 	TestingApplyDecision(clusterState, decision)
 }

@@ -11,7 +11,7 @@ import (
 
 var log = logging.Get()
 
-func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.DecisionForNewPods {
+func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod, canMigrate bool) model.DecisionForNewPods {
 	bestDecision := model.DecisionForNewPods{
 		Score: math.Inf(-1),
 	}
@@ -33,10 +33,18 @@ func MakeDecisionForNewPods(c *model.ClusterState, newPods []*model.Pod) model.D
 			utils.SAddVec(leastResourceNeeded, pod.Deployment.ResourcesRequired)
 		}
 
-		// TODO read it from candidate list
-		freeEdgeSol, err := CalcState(c, leastResourceNeeded)
-		if err != nil {
-			continue
+		var freeEdgeSol model.FreeEdgeSolution
+		if canMigrate {
+			var err error
+			freeEdgeSol, err = CalcState(c, leastResourceNeeded)
+			if err != nil {
+				continue
+			}
+		} else {
+			edgeResourcesRem := utils.SubVec(c.Edge.Config.Resources, c.Edge.UsedResources)
+			if !utils.LEThan(leastResourceNeeded, edgeResourcesRem) {
+				continue
+			}
 		}
 
 		currentDecision := model.DecisionForNewPods{

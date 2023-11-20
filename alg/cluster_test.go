@@ -41,7 +41,7 @@ func TestMakeDecisionForNewPods(t *testing.T) {
 			[]string{},
 		)
 
-		decision := MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"A", "B"}))
+		decision := MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"A", "B"}), true)
 		TestingApplyDecision(clusterState, decision)
 
 		builder.Expect(
@@ -73,7 +73,7 @@ func TestComprehensiveScenario(t *testing.T) {
 		[]string{},
 	)
 
-	decision := MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"A", "A", "B", "B"}))
+	decision := MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"A", "A", "B", "B"}), true)
 	TestingApplyDecision(clusterState, decision)
 
 	t.Run("Init stage", func(t *testing.T) {
@@ -87,7 +87,7 @@ func TestComprehensiveScenario(t *testing.T) {
 		)
 	})
 
-	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"C", "C", "B"}))
+	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"C", "C", "B"}), true)
 	TestingApplyDecision(clusterState, decision)
 
 	t.Run("New pods", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestComprehensiveScenario(t *testing.T) {
 	}
 
 	deletePod("B")
-	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"D"}))
+	decision = MakeDecisionForNewPods(clusterState, builder.GetPods([]string{"D"}), true)
 	TestingApplyDecision(clusterState, decision)
 
 	t.Run("Pod deletion", func(t *testing.T) {

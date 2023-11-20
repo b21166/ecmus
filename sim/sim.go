@@ -132,7 +132,7 @@ func Start() {
 		case KUBERNETES_DEFAULT:
 			kubeDefaultSchedulePods(newPods)
 		case QASRE:
-			decision := alg.MakeDecisionForNewPods(clusterState, newPods)
+			decision := alg.MakeDecisionForNewPods(clusterState, newPods, true)
 			alg.TestingApplyDecision(clusterState, decision)
 			alg.TestingApplySuggestion(clusterState, alg.SuggestCloudToEdge(clusterState))
 			alg.TestingApplySuggestion(clusterState, alg.SuggestCloudToEdge(clusterState))
