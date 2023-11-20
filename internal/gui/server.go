@@ -37,7 +37,7 @@ func SetUp(bridge scheduler.SchedulerBridge) {
 	clusterStateRequestStream = bridge.ClusterStateRequestStream
 
 	router = gin.Default()
-	router.LoadHTMLFiles("./index.html")
+	router.LoadHTMLFiles("./internal/gui/index.html")
 
 	router.Use(cors.Default())
 
