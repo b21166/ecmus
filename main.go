@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/connector"
@@ -12,6 +14,7 @@ import (
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/scheduler"
 	"github.com/amsen20/ecmus/logging"
+	"github.com/amsen20/ecmus/statistics"
 	"gopkg.in/yaml.v2"
 )
 
@@ -73,7 +76,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	signalChannel := make(chan os.Signal, 2)
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+
+	// Setup statistics.
+	statistics.Init()
+	statistics.Set("restarts", 0)
+
 	// Simple gui in web-server for checking state's status.
 	gui.SetUp(schedulerBridge)
-	gui.Run()
+	go gui.Run()
+
+	<-signalChannel
+	log.Info().Msgf("exiting gracefully...")
+	log.Info().Msgf("\n%s", statistics.Display())
 }
