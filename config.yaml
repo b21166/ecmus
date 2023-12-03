@@ -8,5 +8,5 @@ connector: kubernetes
 connector_config: ./config
 flush_period_duration: 1000
 cloud_suggest_duration: 1000
-health_check_duration: 10000
+health_check_duration: 39000
 recover_retry_duration: 5000
