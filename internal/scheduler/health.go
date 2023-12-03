@@ -2,19 +2,21 @@ package scheduler
 
 type healthCheckSample struct {
 	expectationsLength int
-	lastExpectationId  uint32
+	lastExpectation    *expectation
 }
 
 func newHealthCheckSample(scheduler *Scheduler) *healthCheckSample {
 
-	var lastExpectationId uint32
+	var lastExpectation *expectation
 	if len(scheduler.expectations) > 0 {
-		lastExpectationId = scheduler.expectations[len(scheduler.expectations)-1].id
+		lastExpectation = scheduler.expectations[len(scheduler.expectations)-1]
+	} else {
+		lastExpectation = nil
 	}
 
 	newSample := &healthCheckSample{
 		expectationsLength: len(scheduler.expectations),
-		lastExpectationId:  lastExpectationId,
+		lastExpectation:    lastExpectation,
 	}
 
 	return newSample
@@ -29,9 +31,13 @@ func (h *healthCheckSample) isStuck(o *healthCheckSample) bool {
 		return false
 	}
 
-	if o.lastExpectationId != h.lastExpectationId {
+	if o.lastExpectation.id != h.lastExpectation.id {
 		return false
 	}
+
+	// if o.lastExpectation.tp == PLACING {
+	// 	return false
+	// }
 
 	return true
 }

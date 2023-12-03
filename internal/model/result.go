@@ -32,6 +32,7 @@ type EdgePodMapping struct {
 	DeFragmentation float64
 }
 
-type CloudSuggestion struct {
-	Migrations []*Pod
+type ReorderSuggestion struct {
+	CloudToEdgePods []*Pod
+	Decision        DecisionForNewPods
 }

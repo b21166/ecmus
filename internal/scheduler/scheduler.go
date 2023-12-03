@@ -11,6 +11,7 @@ import (
 	"github.com/amsen20/ecmus/internal/model"
 	"github.com/amsen20/ecmus/internal/utils"
 	"github.com/amsen20/ecmus/logging"
+	"github.com/amsen20/ecmus/statistics"
 	"github.com/google/uuid"
 )
 
@@ -29,8 +30,13 @@ type Scheduler struct {
 	clusterState *model.ClusterState
 	connector    connector.Connector
 
+	goingToPlace map[int]bool
 	newPodBuffer []*model.Pod
-	expectations []*expectation
+
+	// Expectations must be either all PLACING or REORDERING not a mixture of them.
+	// TODO refactor this to a interface with two implementations PLACING and REORDERING
+	expectations               []*expectation
+	expectedReorderDeployments map[int]int
 
 	healthCheckSample *healthCheckSample
 }
@@ -46,6 +52,9 @@ func New(clusterState *model.ClusterState, connector connector.Connector) (*Sche
 	return &Scheduler{
 		clusterState: clusterState,
 		connector:    connector,
+
+		goingToPlace:               make(map[int]bool),
+		expectedReorderDeployments: make(map[int]int),
 	}, nil
 }
 
@@ -71,6 +80,10 @@ func (scheduler *Scheduler) Start() error {
 
 func (scheduler *Scheduler) flushExpectations(reschedule bool) {
 	log.Info().Msg("flushing expectations")
+
+	scheduler.goingToPlace = make(map[int]bool)
+	scheduler.expectedReorderDeployments = make(map[int]int)
+
 	scheduler.expectations = nil
 	if reschedule {
 		scheduler.schedule()
@@ -79,6 +92,13 @@ func (scheduler *Scheduler) flushExpectations(reschedule bool) {
 
 func (scheduler *Scheduler) nextExpectation() {
 	if len(scheduler.expectations) > 0 {
+		statistics.Change(
+			fmt.Sprintf(
+				"expectation type %s done", expectationTypeToString(
+					scheduler.expectations[0].tp,
+				)), 1,
+		)
+
 		scheduler.expectations = scheduler.expectations[1:]
 	}
 	if len(scheduler.expectations) == 0 {
@@ -196,7 +216,7 @@ func (scheduler *Scheduler) handleEvent(event *connector.Event) {
 	}
 }
 
-func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
+func (scheduler *Scheduler) schedulePlan(plan []*planElement, planType expectationType) {
 	log.Info().Msg("scheduling plan")
 	if len(plan) == 0 {
 		log.Info().Msg("plan was empty")
@@ -230,6 +250,7 @@ func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
 				return nil
 			},
 			id: uuid.New().ID(),
+			tp: planType,
 		})
 	}
 
@@ -244,36 +265,44 @@ func (scheduler *Scheduler) schedulePlan(plan []*planElement) {
 			return nil
 		},
 		id: uuid.New().ID(),
+		tp: planType,
 	})
+
+	statistics.Change(fmt.Sprintf("expectation type %s added", expectationTypeToString(planType)), len(plan))
 }
 
 func (scheduler *Scheduler) schedule() {
 	log.Info().Msg("scheduling requested")
-
-	pendingPods, err := scheduler.connector.GetPendingPods()
-	if err == nil {
-		scheduler.newPodBuffer = pendingPods
+	if len(scheduler.expectations) > 0 && scheduler.expectations[0].tp == PLACING {
+		log.Info().Msg("ignored scheduling because last placing is not done yet")
+		return
 	}
 
-	if len(scheduler.expectations) != 0 {
-		log.Info().Msgf("still expect something, checking new pods\n")
-		log.Info().Msgf("expectations at the moment: %v", scheduler.expectations)
-		log.Info().Msgf("expectations at the moment: %v", scheduler.newPodBuffer)
+	if len(scheduler.newPodBuffer) == 0 {
+		// An optimization:
+		// Fetch pending pods from k8s api if the buffer is empty.
 
+		pendingPods, err := scheduler.connector.GetPendingPods()
+		if err == nil {
+			scheduler.newPodBuffer = pendingPods
+		}
+	}
+
+	if len(scheduler.expectations) > 0 {
 		progress := true
 		for len(scheduler.expectations) > 0 && progress {
 			progress = false
 
 			currentExpectation := scheduler.expectations[0]
 			for ind, pod := range scheduler.newPodBuffer {
-				fakeEvent := &connector.Event{
+				dummyEvent := &connector.Event{
 					EventType: connector.POD_CREATED,
 					Pod:       pod,
 					Node:      nil,
 					Status:    pod.Status,
 				}
-				if currentExpectation.doMatch(fakeEvent) {
-					if err := currentExpectation.onOccurred(fakeEvent); err != nil {
+				if currentExpectation.doMatch(dummyEvent) {
+					if err := currentExpectation.onOccurred(dummyEvent); err != nil {
 						log.Err(err).Msgf("couldn't execute expectation's onOccurred due to")
 						scheduler.flushExpectations(false)
 						break
@@ -288,21 +317,122 @@ func (scheduler *Scheduler) schedule() {
 				}
 			}
 		}
+	}
 
+	var filteredBuffer []*model.Pod
+	for _, newPod := range scheduler.newPodBuffer {
+		if _, ok := scheduler.goingToPlace[newPod.Id]; !ok {
+			filteredBuffer = append(filteredBuffer, newPod)
+		}
+	}
+	scheduler.newPodBuffer = filteredBuffer
+
+	if len(scheduler.newPodBuffer) == 0 {
+		log.Info().Msg("no *new* pod for scheduling")
 		return
+	}
+
+	// This code is responsible to check whether the pending pods
+	// are a part of a migration or are new pods?
+	if len(scheduler.expectations) > 0 {
+		deploymentCounts := make(map[int]int)
+		for _, newPod := range scheduler.newPodBuffer {
+			cnt := deploymentCounts[newPod.Deployment.Id]
+			deploymentCounts[newPod.Deployment.Id] = cnt + 1
+		}
+
+		for deploymentId, cnt := range deploymentCounts {
+			if cnt > scheduler.expectedReorderDeployments[deploymentId] {
+				scheduler.flushExpectations(true)
+				return
+			}
+		}
+
+		scheduler.newPodBuffer = nil
+	}
+
+	if len(scheduler.newPodBuffer) == 0 {
+		log.Info().Msg("all current pending pods are a part of a migration")
+		return
+	}
+
+	if len(scheduler.expectations) > 0 {
+		log.Info().Msg("new pods are arrived in middle of migrations (reordering)")
+		scheduler.flushExpectations(false)
 	}
 
 	newPodsLength := utils.Min(len(scheduler.newPodBuffer), config.SchedulerGeneralConfig.BatchSize)
 	newPods := scheduler.newPodBuffer[:newPodsLength]
 	scheduler.newPodBuffer = scheduler.newPodBuffer[newPodsLength:]
 
-	decision := alg.MakeDecisionForNewPods(scheduler.clusterState, newPods)
+	decision := alg.MakeDecisionForNewPods(scheduler.clusterState, newPods, false)
 
 	log.Info().Msgf("decision has been made %v", decision)
 
 	cloudNode := scheduler.clusterState.Cloud.Nodes[0]
 
 	var plan []*planElement
+	for _, pod := range decision.ToCloudPods {
+		plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+
+		scheduler.goingToPlace[pod.Id] = true
+	}
+
+	edgeMapping := alg.MapPodToEdge(scheduler.clusterState, decision.ToEdgePods, decision.EdgeToCloudOffloadingPods, decision.Migrations).Mapping
+
+	for _, pod := range decision.ToEdgePods {
+		if node, ok := edgeMapping[pod.Id]; ok {
+			plan = append(plan, getBindPodPlanElement(scheduler, pod, node))
+		} else {
+			log.Warn().Msgf("couldn't deploy pod %d on edge, deploying on cloud", pod.Id)
+			plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+		}
+
+		scheduler.goingToPlace[pod.Id] = true
+	}
+
+	scheduler.schedulePlan(plan, PLACING)
+}
+
+func (scheduler *Scheduler) checkSuggestion(suggestion model.ReorderSuggestion) {
+	log.Info().Msg("checking suggestion")
+	if len(scheduler.expectations) != 0 {
+		log.Info().Msg("scheduler is in middle of something, ignored the suggestion")
+		return
+	}
+
+	// Resetting everything.
+	scheduler.flushExpectations(false)
+
+	cloudNode := scheduler.clusterState.Cloud.Nodes[0]
+	updatedDecision := model.DecisionForNewPods{}
+	plan := make([]*planElement, 0)
+
+	canBeFreedFromCloud := make(map[int]*model.Pod)
+	for _, suggestionPod := range suggestion.CloudToEdgePods {
+		pod, ok := scheduler.clusterState.PodsMap[suggestionPod.Id]
+		if !ok {
+			continue
+		}
+
+		if pod.Node == nil {
+			continue
+		}
+
+		if pod.Node == cloudNode {
+			canBeFreedFromCloud[pod.Id] = pod
+		}
+	}
+
+	for _, suggestedPod := range suggestion.Decision.ToEdgePods {
+		pod, ok := canBeFreedFromCloud[suggestedPod.Id]
+		if !ok {
+			continue
+		}
+
+		updatedDecision.ToEdgePods = append(updatedDecision.ToEdgePods, pod)
+	}
+
 	imgState := scheduler.clusterState.Clone()
 	getImgPod := func(pod *model.Pod) *model.Pod {
 		imgPod, ok := imgState.PodsMap[pod.Id]
@@ -317,7 +447,13 @@ func (scheduler *Scheduler) schedule() {
 		return imgPod
 	}
 
-	for _, pod := range decision.EdgeToCloudOffloadingPods {
+	for _, suggestionPod := range suggestion.Decision.EdgeToCloudOffloadingPods {
+		pod, ok := scheduler.clusterState.PodsMap[suggestionPod.Id]
+		if !ok || pod.Node == nil || pod.Node.Id == cloudNode.Id {
+			// Either already deleted or placed on cloud.
+			continue
+		}
+
 		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
 		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
 		plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
@@ -325,76 +461,118 @@ func (scheduler *Scheduler) schedule() {
 		imgPod := getImgPod(pod)
 		imgState.RemovePod(imgPod)
 		imgState.DeployCloud(imgPod)
+
+		updatedDecision.EdgeToCloudOffloadingPods = append(
+			updatedDecision.EdgeToCloudOffloadingPods,
+			pod,
+		)
 	}
 
-	for _, pod := range decision.ToCloudPods {
-		plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+	for _, suggestedMigration := range suggestion.Decision.Migrations {
+		pod, ok := scheduler.clusterState.PodsMap[suggestedMigration.Pod.Id]
+		node := suggestedMigration.Node
 
-		imgPod := getImgPod(pod)
-		imgState.DeployCloud(imgPod)
-	}
+		if !ok || suggestedMigration.Pod.Node.Id != node.Id {
+			// Already deleted or changed the node.
+			continue
+		}
 
-	for _, migration := range decision.Migrations {
-		pod := migration.Pod
-		node := migration.Node
+		if node == nil {
+			panic("TRIED TO MIGRATE A POD WHICH DOES NOT HAVE NODE")
+		}
 
 		imgPod := getImgPod(pod)
 		imgState.RemovePod(imgPod)
 
-		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
-		plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
+		if pod.Node != nil {
+			// Need to be migrated:
+			plan = append(plan, getDeletePodPlanElement(scheduler, pod))
+			plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
 
-		if err := imgState.DeployEdge(imgPod, node); err == nil {
+			if err := imgState.DeployEdge(imgPod, node); err == nil {
+				plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, node))
+
+				updatedDecision.Migrations = append(
+					updatedDecision.Migrations,
+					&model.Migration{
+						Pod:  pod,
+						Node: node,
+					},
+				)
+			} else {
+				// * Important: the pod is placed on cloud but not on the target of migration
+				// * because the next phase (being deleted from cloud and placed on edge) is hoped
+				// * to be done by the suggestion system.
+
+				imgState.DeployCloud(imgPod)
+				plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
+
+				updatedDecision.Migrations = append(
+					updatedDecision.Migrations, &model.Migration{
+						Pod:  pod,
+						Node: cloudNode,
+					},
+				)
+			}
+		} else {
+			// Only need to be placed:
+			if err := imgState.DeployEdge(imgPod, node); err == nil {
+				plan = append(plan, getBindPodPlanElement(scheduler, pod, node))
+
+				updatedDecision.Migrations = append(
+					updatedDecision.Migrations,
+					&model.Migration{
+						Pod:  pod,
+						Node: node,
+					},
+				)
+			} else {
+				imgState.DeployCloud(imgPod)
+				plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
+
+				updatedDecision.Migrations = append(
+					updatedDecision.Migrations,
+					&model.Migration{
+						Pod:  pod,
+						Node: cloudNode,
+					},
+				)
+			}
+		}
+	}
+
+	// ToCloudPods are already on cloud,
+	// so nothing to do with decision.ToCloudPods.
+
+	edgeMapping := alg.MapPodToEdge(scheduler.clusterState, updatedDecision.ToEdgePods, updatedDecision.EdgeToCloudOffloadingPods, updatedDecision.Migrations).Mapping
+
+	for _, pod := range updatedDecision.ToEdgePods {
+		if node, ok := edgeMapping[pod.Id]; ok {
+			// Migrate from cloud to edge:
+			plan = append(plan, getDeletePodPlanElement(scheduler, pod))
+			plan = append(plan, getCreatePodPlanElement(scheduler, pod.Deployment))
 			plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, node))
 		} else {
-			imgState.DeployCloud(imgPod)
-			plan = append(plan, getMigrateBindPodPlanElement(scheduler, pod.Deployment, cloudNode))
+			// It is already on cloud, so no need to do anything.
+		}
+
+		scheduler.goingToPlace[pod.Id] = true
+	}
+
+	// Adding deleted pods to expected reorder deployments:
+	for _, pod := range updatedDecision.EdgeToCloudOffloadingPods {
+		if pod.Node != nil {
+			scheduler.expectedReorderDeployments[pod.Deployment.Id] += 1
+		}
+	}
+	for _, migration := range updatedDecision.Migrations {
+		pod := migration.Pod
+		if pod.Node != nil {
+			scheduler.expectedReorderDeployments[pod.Deployment.Id] += 1
 		}
 	}
 
-	edgeMapping := alg.MapPodToEdge(scheduler.clusterState, decision.ToEdgePods, decision.EdgeToCloudOffloadingPods, decision.Migrations).Mapping
-
-	for _, pod := range decision.ToEdgePods {
-		if node, ok := edgeMapping[pod.Id]; ok {
-			plan = append(plan, getBindPodPlanElement(scheduler, pod, node))
-		} else {
-			log.Warn().Msgf("couldn't deploy pod %d on edge, deploying on cloud", pod.Id)
-			plan = append(plan, getBindPodPlanElement(scheduler, pod, cloudNode))
-		}
-	}
-
-	scheduler.schedulePlan(plan)
-}
-
-func (scheduler *Scheduler) checkSuggestion(suggestion model.CloudSuggestion) {
-	log.Info().Msg("checking suggestion")
-	if len(scheduler.expectations) != 0 {
-		return
-	}
-
-	cloudNode := scheduler.clusterState.Cloud.Nodes[0]
-
-	newPods := make([]*model.Pod, 0)
-
-	for _, suggestionPod := range suggestion.Migrations {
-		pod, ok := scheduler.clusterState.PodsMap[suggestionPod.Id]
-		if !ok {
-			continue
-		}
-
-		if pod.Node != cloudNode {
-			continue
-		}
-
-		newPods = append(newPods, pod)
-	}
-
-	var plan []*planElement
-	for _, pod := range newPods {
-		plan = append(plan, getDeletePodPlanElement(scheduler, pod))
-	}
-
-	scheduler.schedulePlan(plan)
+	scheduler.schedulePlan(plan, REORDERING)
 }
 
 func (scheduler *Scheduler) resetClusterView() error {
@@ -413,6 +591,7 @@ func (scheduler *Scheduler) resetClusterView() error {
 
 func (scheduler *Scheduler) recoverHealth() {
 	log.Warn().Msg("resetting scheduler's view of cluster...")
+	statistics.Change("restarts", 1)
 
 	recoverRetryDuration := time.Duration(config.SchedulerGeneralConfig.RecoverRetryDuration) * time.Millisecond
 
@@ -465,7 +644,7 @@ func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 
 	makeCloudSuggestion := make(chan struct{})
 
-	CloudSuggestStream := make(chan model.CloudSuggestion)
+	reorderSuggestStream := make(chan model.ReorderSuggestion)
 	go func() {
 		<-time.After(cloudSuggestionDuration)
 		makeCloudSuggestion <- struct{}{}
@@ -490,11 +669,11 @@ func (scheduler *Scheduler) Run(ctx context.Context) (SchedulerBridge, error) {
 				clonedState := scheduler.clusterState.Clone()
 				go func() {
 					log.Info().Msg("making suggestion")
-					CloudSuggestStream <- alg.SuggestCloudToEdge(clonedState)
+					reorderSuggestStream <- alg.SuggestReorder(clonedState)
 					<-time.After(cloudSuggestionDuration)
 					makeCloudSuggestion <- struct{}{}
 				}()
-			case suggestion := <-CloudSuggestStream:
+			case suggestion := <-reorderSuggestStream:
 				scheduler.checkSuggestion(suggestion)
 			}
 		}

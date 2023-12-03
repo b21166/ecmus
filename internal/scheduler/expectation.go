@@ -27,6 +27,13 @@ type planElement struct {
 	after   func(*connector.Event) error
 }
 
+func expectationTypeToString(tp expectationType) string {
+	if tp == PLACING {
+		return "placing"
+	}
+	return "reordering"
+}
+
 func getDeletePodPlanElement(scheduler *Scheduler, pod *model.Pod) *planElement {
 	return &planElement{
 		do: func(event *connector.Event) error {
