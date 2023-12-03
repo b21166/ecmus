@@ -46,12 +46,11 @@ func TestingApplyDecision(clusterState *model.ClusterState, decision model.Decis
 	}
 }
 
-func TestingApplySuggestion(clusterState *model.ClusterState, suggestion model.CloudSuggestion) {
-	for _, pod := range suggestion.Migrations {
+func TestingApplySuggestion(clusterState *model.ClusterState, suggestion model.ReorderSuggestion) {
+	for _, pod := range suggestion.CloudToEdgePods {
 		if !clusterState.RemovePod(pod) {
 			panic(fmt.Sprintf("could not remove pod %d", pod.Id))
 		}
 	}
-	decision := MakeDecisionForNewPods(clusterState, suggestion.Migrations, true)
-	TestingApplyDecision(clusterState, decision)
+	TestingApplyDecision(clusterState, suggestion.Decision)
 }

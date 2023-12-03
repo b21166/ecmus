@@ -134,8 +134,8 @@ func Start() {
 		case QASRE:
 			decision := alg.MakeDecisionForNewPods(clusterState, newPods, true)
 			alg.TestingApplyDecision(clusterState, decision)
-			alg.TestingApplySuggestion(clusterState, alg.SuggestCloudToEdge(clusterState))
-			alg.TestingApplySuggestion(clusterState, alg.SuggestCloudToEdge(clusterState))
+			alg.TestingApplySuggestion(clusterState, alg.SuggestReorder(clusterState))
+			alg.TestingApplySuggestion(clusterState, alg.SuggestReorder(clusterState))
 		}
 
 		qos, err := alg.CalcNumberOfQosSatisfactions(clusterState.Edge.Config, clusterState.Cloud.Pods, clusterState.Edge.Pods, nil, nil)

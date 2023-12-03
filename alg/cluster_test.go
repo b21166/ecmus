@@ -132,8 +132,8 @@ func TestComprehensiveScenario(t *testing.T) {
 	})
 
 	deletePod("D")
-	TestingApplySuggestion(clusterState, SuggestCloudToEdge(clusterState))
-	TestingApplySuggestion(clusterState, SuggestCloudToEdge(clusterState))
+	TestingApplySuggestion(clusterState, SuggestReorder(clusterState))
+	TestingApplySuggestion(clusterState, SuggestReorder(clusterState))
 
 	t.Run("Cloud to edge", func(t *testing.T) {
 		builder.Expect(
