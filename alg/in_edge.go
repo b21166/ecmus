@@ -303,12 +303,12 @@ func EvalFreePods(c *model.ClusterState, leastResource *mat.VecDense) []*model.P
 	scoreOfFreeingPod := func(pod *model.Pod) float64 {
 		var score float64
 		fragmentation := utils.CalcDeFragmentation(pod.Deployment.ResourcesRequired, maximumResources)
-		info := qosResult.DeploymentsQoS[pod.Deployment.Id]
-		score = QoS(
+		// info := qosResult.DeploymentsQoS[pod.Deployment.Id]
+		score = -1 /*QoS(
 			float64(info.NumberOfPodOnEdge-1)/float64(info.NumberOfPods), pod.Deployment.EdgeShare,
 		) - QoS(
 			float64(info.NumberOfPodOnEdge)/float64(info.NumberOfPods), pod.Deployment.EdgeShare,
-		)
+		)*/
 		score /= fragmentation
 
 		return score
