@@ -22,12 +22,12 @@ func SuggestCloudToEdge(clusterState *model.ClusterState) []*model.Pod {
 	scoreOfMigratingPod := func(pod *model.Pod) float64 {
 		var score float64
 		fragmentation := utils.CalcDeFragmentation(pod.Deployment.ResourcesRequired, maximumResources)
-		// info := qosResult.DeploymentsQoS[pod.Deployment.Id]
-		score = 1 /* QoS(
+		info := qosResult.DeploymentsQoS[pod.Deployment.Id]
+		score = QoS(
 			float64(info.NumberOfPodOnEdge+1)/float64(info.NumberOfPods), pod.Deployment.EdgeShare,
 		) - QoS(
 			float64(info.NumberOfPodOnEdge)/float64(info.NumberOfPods), pod.Deployment.EdgeShare,
-		) */
+		)
 		score /= fragmentation
 
 		if clusterState.NumberOfRunningPods[pod.Deployment.Id] == 1 {
