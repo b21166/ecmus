@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/rest"
 )
 
 type KubeConnector struct {
@@ -32,15 +32,15 @@ type KubeConnector struct {
 	deploymentIdToName map[int]string
 }
 
-func NewKubeConnector(configPath string, clusterState *model.ClusterState) (*KubeConnector, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", configPath)
+func NewKubeConnector(clusterState *model.ClusterState) (*KubeConnector, error) {
+	config, err := rest.InClusterConfig()
 	if err != nil {
 		log.Err(err).Send()
 
-		return nil, fmt.Errorf("could not init kube connector from config")
+		return nil, fmt.Errorf("can't connect to kubernetes cluster")
 	}
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		log.Err(err).Send()
 
@@ -48,7 +48,7 @@ func NewKubeConnector(configPath string, clusterState *model.ClusterState) (*Kub
 	}
 
 	kc := &KubeConnector{
-		clientset:          clientset,
+		clientset:          clientSet,
 		clusterState:       clusterState,
 		nodeIdToName:       make(map[int]string),
 		podIdToName:        make(map[int]string),

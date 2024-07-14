@@ -45,7 +45,7 @@ func main() {
 	case "const":
 		c = connector.NewConstantConnector(clusterState)
 	case "kubernetes":
-		c, err = connector.NewKubeConnector(config.SchedulerGeneralConfig.ConnectorConfigPath, clusterState)
+		c, err = connector.NewKubeConnector(clusterState)
 		if err != nil {
 			log.Err(err).Msg("could not init the connector")
 			os.Exit(1)
