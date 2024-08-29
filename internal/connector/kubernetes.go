@@ -5,6 +5,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/amsen20/ecmus/internal/config"
 	"github.com/amsen20/ecmus/internal/model"
@@ -294,10 +295,10 @@ func (kc *KubeConnector) FindDeployments() error {
 			}),
 			EdgeShare: 1, // TODO parse it from deployment's labels
 		}
-		// manual edge share:
-		// if deploymentName == "c" {
-		// 	modelDeployment.EdgeShare = 1
-		// }
+		// FIXME manual edge share:
+		if strings.Contains(strings.ToLower(deploymentName), "d") {
+			modelDeployment.EdgeShare = 0.5
+		}
 
 		log.Info().Msgf("found deployment %s", deploymentName)
 		kc.clusterState.Edge.Config.AddDeployment(modelDeployment)
