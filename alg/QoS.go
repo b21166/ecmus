@@ -29,8 +29,8 @@ type QoSResult struct {
 }
 
 const (
-	SATISFACTION_SCORE = 0.9
-	PRE_SATISFACTION   = 0.4
+	SATISFACTION_SCORE = 0.99
+	PRE_SATISFACTION   = 0.8
 )
 
 func QoS(currentShare, promisedShare float64) float64 {
@@ -38,10 +38,10 @@ func QoS(currentShare, promisedShare float64) float64 {
 		return SATISFACTION_SCORE
 	}
 	if currentShare >= promisedShare {
-		return SATISFACTION_SCORE + (currentShare-promisedShare)*0.1/(1-promisedShare)
+		return SATISFACTION_SCORE + (currentShare-promisedShare)*(1-SATISFACTION_SCORE)/(1-promisedShare)
 	}
 
-	return PRE_SATISFACTION / promisedShare * currentShare
+	return PRE_SATISFACTION * math.Sqrt(currentShare/promisedShare)
 }
 
 // If a pod is in both pre-known and new pods, the new state
