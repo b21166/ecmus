@@ -29,7 +29,7 @@ The scheduler's performance has been experimented with various generated multi-p
 The following is the list of the projects developed alongside KubeDSM for this research:
 - [Genny](https://github.com/AUT-Cloud-Lab/genny): Genny generates scenarios based on the given config. It is used to generate normal distributed and wavy scenarios.
 - [DrStress](https://github.com/AUT-Cloud-Lab/DrStress): DrStress implements the given scenario to generate workload for the scheduler.
-- [MineDraft](https://github.com/AUT-Cloud-Lab/MineDraft): MineDraft extracts draft diagrams and tables from the metrics aggregated during the scenario execution, these drafts further are used to analyze and create diagrams for the paper.
+- [MineDraft](https://github.com/AUT-Cloud-Lab/MineDraft): MineDraft extracts draft diagrams and tables from the metrics aggregated during the scenario execution, these drafts are further used to analyze and create diagrams for the paper.
 - [Sencillo](https://github.com/AUT-Cloud-Lab/sencillo): As Kubernetes default scheduler does not perform well in heterogeneous edge clusters, several scheduling algorithms are implemented in Sencillo to compete with KubeDSM in the experiments.
 
 ## Paper
