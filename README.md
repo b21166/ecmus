@@ -11,7 +11,7 @@ KubeDSM's goal is to minimize user response time by using edge resources as much
 To do so, KubeDSM is dynamically migrating pods from cloud to edge. Also, it will migrate pods between edge nodes, to reduce resource fragmentation. This will help the upcoming pods to fit better in the edge.
 The scheduler is also able to do batch scheduling (i.e. scheduling multiple pods simultaneously). You can see the scheduler's component diagram in the figure below:
 <p align="center">
-  <img src="https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/ComponentDiagram.png" width="50%" height="50%">
+  <img src="https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/ComponentDiagram.png" width="80%" height="80%">
 </p>
 
 ## Algorithm
