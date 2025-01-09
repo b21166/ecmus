@@ -18,7 +18,7 @@ The scheduler is also able to do batch scheduling (i.e. scheduling multiple pods
 The underlying scheduling algorithm takes advantage of the edge cluster's small resource size to make almost optimal decisions to maximize its goal function (Quality Of Service, QoS).
 The algorithm's data flow diagram:
 <p align="center">
-  <img src="https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/AlgorithmDFD.png" width="50%" height="50%">
+  <img src="https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/AlgorithmDFD.png" width="80%" height="80%">
 </p>
 The nature of the edge environment is error-prone and the scheduler is developed to be resilient to this. The scheduler is able to *heal* its state whenever it gets into a malfunctioned state, and it expects errors and interruptions to happen in each step.
 
