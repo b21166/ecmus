@@ -1,10 +1,12 @@
 # KubeDSM (named ecmus before)
-For more details you can check out the [paper](https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/KubeDSM.pdf), it's wrapping up :)
-## Cluster
 *KubeDSM* is a Kubernetes scheduler module designed to operate on cloud-assisted edge clusters. The following figure displays an overview of the cluster:
 <p align="center">
   <img src="https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/ClusterOverview.png" width="80%" height="80%">
 </p>
+
+## Paper
+You can find more details about this scheduler and the experiments in our paper. You can access the paper here: 
+[KubeDSM](http://arxiv.org/abs/2501.07130).
 
 ## Goal
 KubeDSM's goal is to minimize user response time by using edge resources as much as possible. 
@@ -32,5 +34,3 @@ The following is the list of the projects developed alongside KubeDSM for this r
 - [MineDraft](https://github.com/AUT-Cloud-Lab/MineDraft): MineDraft extracts draft diagrams and tables from the metrics aggregated during the scenario execution, these drafts are further used to analyze and create diagrams for the paper.
 - [Sencillo](https://github.com/AUT-Cloud-Lab/sencillo): As Kubernetes default scheduler does not perform well in heterogeneous edge clusters, several scheduling algorithms are implemented in Sencillo to compete with KubeDSM in the experiments.
 
-## Paper
-For now, you can find the paper [here](https://github.com/AUT-Cloud-Lab/ecmus/blob/main/archive/KubeDSM.pdf).
