@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qos-app
+  namespace: ecmus
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qos-app
+  template:
+    metadata:
+      labels:
+        app: qos-app
+        qos: high
+    spec:
+      containers:
+      - name: app-container
+        image: nginx
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
