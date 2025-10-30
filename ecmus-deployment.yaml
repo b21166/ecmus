@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecmus
+  namespace: ecmus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ecmus
+  template:
+    metadata:
+      labels:
+        app: ecmus
+    spec:
+      containers:
+      - name: ecmus
+        image: ecmus-scheduler
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config.yaml
+          subPath: config.yaml
+      volumes:
+      - name: config-volume
+        configMap:
+          name: ecmus-config
