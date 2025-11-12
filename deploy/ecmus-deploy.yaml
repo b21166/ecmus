@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecmus-config
+  namespace: default
+data:
+  config.yaml: |
+    general:
+      name: ecmus
+      namespace: default
+      mode: kubernetes
+    cloud:
+      nodes: []
+    edge:
+      nodes: []
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecmus
+  namespace: default
+  labels:
+    app: ecmus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ecmus
+  template:
+    metadata:
+      labels:
+        app: ecmus
+    spec:
+      serviceAccountName: default
+      containers:
+      - name: ecmus
+        image: ecmus:latest
+        imagePullPolicy: IfNotPresent
+        command: ["./ecmus"]
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config.yaml
+          subPath: config.yaml
+      volumes:
+      - name: config-volume
+        configMap:
+          name: ecmus-config
+
