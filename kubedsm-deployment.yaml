@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubedsm-scheduler
+  labels:
+    app: kubedsm-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubedsm-scheduler
+  template:
+    metadata:
+      labels:
+        app: kubedsm-scheduler
+    spec:
+      serviceAccountName: kubedsm-sa
+      containers:
+      - name: kubedsm
+        image: kubedsm-scheduler:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 10251

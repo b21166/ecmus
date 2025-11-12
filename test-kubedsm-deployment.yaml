@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-kubedsm
+  namespace: ecmus
+  labels:
+    app: test-kubedsm
+    tier: edge
+    nodetype: edge
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: test-kubedsm
+  template:
+    metadata:
+      labels:
+        app: test-kubedsm
+    spec:
+      containers:
+      - name: dummy
+        image: busybox
+        command: ["sleep", "3600"]

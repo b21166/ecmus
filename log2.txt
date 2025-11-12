@@ -1,0 +1,20 @@
+Script started on 2025-11-12 13:59:15+09:00 [TERM="xterm-256color" TTY="/dev/pts/0" COLUMNS="120" LINES="30"]
+[?2004h]0;yashio@DESKTOP-O9EA23B: ~/ecmus[01;32myashio@DESKTOP-O9EA23B[00m:[01;34m~/ecmus[00m$ git stats[Ki[Kus
+[?2004lOn branch new
+Your branch is up to date with 'origin/new'.
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	[31mkubedsm[m
+	[31mkubedsm-deployment.yaml[m
+	[31mkubedsm-rbac.yaml[m
+	[31mlog.txt[m
+	[31mlog2.txt[m
+	[31mtest-kubedsm-deployment.yaml[m
+	[31mtest-pod-kubedsm.yaml[m
+
+nothing added to commit but untracked files present (use "git add" to track)
+[?2004h]0;yashio@DESKTOP-O9EA23B: ~/ecmus[01;32myashio@DESKTOP-O9EA23B[00m:[01;34m~/ecmus[00m$ exit
+[?2004lexit
+
+Script done on 2025-11-12 14:05:29+09:00 [COMMAND_EXIT_CODE="0"]
