@@ -1,12 +1,12 @@
-name: ecmus
-namespace: ecmus
+name: "ecmus-scheduler"
+namespace: "ecmus"
 resource_count: 2
-batch_size: 10
+connector: "kubernetes"
+connector_config: "./connector_config.yaml"
 maximum_migrations: 3
 maximum_cloud_offload: 5
-connector: kubernetes
-connector_config: ./config
-flush_period_duration: 1000
-cloud_suggest_duration: 1000
-health_check_duration: 39000
-recover_retry_duration: 5000
+flush_period_duration: 1000  # ms
+cloud_suggest_duration: 5000  # ms
+health_check_duration: 3000  # ms
+recover_retry_duration: 5000  # ms
+batch_size: 10
